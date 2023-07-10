@@ -14,7 +14,7 @@ int main()
 
     // Capture pipeline description
     // TODO Make parameterizable with respect to device, host, and port
-    const char *camera_to_udp_pipeline_desc = "v4l2src device=/dev/video0 ! videoflip method=horizontal-flip ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=127.0.0.1 port=62000";
+    const char *camera_to_udp_pipeline_desc = "v4l2src device=/dev/video0 ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=127.0.0.1 port=62000";
 
     // Server UDP communication socket
     int server_comm_fd = socket(AF_INET, SOCK_DGRAM, 0);
