@@ -9,12 +9,17 @@ int main()
     // Initialize GStreamer
     gst_init(nullptr, nullptr);
 
+    std::string device = "/dev/video0";
+    std::string host = "127.0.0.1";
+    std::string port = "62000";
+
+    std::string camera_to_udp_pipeline_desc_str = "v4l2src device=" + device + " ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=" + host + " port=" + port;
+
     // Playback pipeline description
     const char *udp_to_screen_pipeline_desc = "udpsrc name=udpsrc caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! decodebin ! videoconvert ! autovideosink";
 
     // Capture pipeline description
-    // TODO Make parameterizable with respect to device, host, and port
-    const char *camera_to_udp_pipeline_desc = "v4l2src device=/dev/video0 ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=127.0.0.1 port=62000";
+    const char *camera_to_udp_pipeline_desc = camera_to_udp_pipeline_desc_str.c_str();
 
     // Server UDP communication socket
     int server_comm_fd = socket(AF_INET, SOCK_DGRAM, 0);
