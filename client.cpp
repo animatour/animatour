@@ -4,14 +4,14 @@
 #include <iostream>
 #include <thread>
 
-int main()
+int main(int argc, char *argv[])
 {
     // Initialize GStreamer
     gst_init(nullptr, nullptr);
 
-    std::string device = "/dev/video0";
-    std::string host = "127.0.0.1";
-    std::string port = "62000";
+    std::string device = (argc < 2) ? "/dev/video0" : argv[1];
+    std::string host = (argc < 3) ? "127.0.0.1" : argv[2];
+    std::string port = (argc < 4) ? "62000" : argv[3];
 
     std::string camera_to_udp_pipeline_desc_str = "v4l2src device=" + device + " ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=" + host + " port=" + port;
 
