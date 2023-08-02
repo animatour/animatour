@@ -2,8 +2,8 @@
 #include <gst/gst.h>
 #include <poll.h>
 #include <unistd.h>
-// #include <chrono>
 #include <iostream>
+#include <map>
 #include <set>
 #include <thread>
 #include <vector>
@@ -12,7 +12,7 @@
 const int BUFFER_SIZE = 4096;
 // TODO Rename this to PORT, after the other one below it is discarded
 const int PORT_EXT = 62000;
-// TODO Discard this and all related functionality
+// TODO Discard this and all related functionality OR dynamically take a port number for GStreamer pipeline output
 const int PORT_INT = 63000;
 
 struct sockaddr_in_cmp
@@ -27,45 +27,11 @@ struct sockaddr_in_cmp
 
 std::set<sockaddr_in, sockaddr_in_cmp> client_sockaddrs;
 
-std::vector<int> ports;
+// Maps client port to GStreamer pipeline udpsrc address
+std::map<u_int, sockaddr_in> map_gst;
 
-/**
- * Get data from the `appsink` at the end of the GStreamer pipeline and
- * send it to all active clients using the supplied socket.
- *
- * TODO Check whether using a callback for "new-sample" is better than
- * using a separate thread and blocking on `gst_app_sink_pull_sample`.
- */
-// void route(GstAppSink *appsink, int socket_ext)
-// {
-//     while (true)
-//     {
-//         GstSample *sample = gst_app_sink_pull_sample(appsink);
-//         GstBuffer *buffer = gst_sample_get_buffer(sample);
-//         GstMapInfo info;
-
-//         if (gst_buffer_map(buffer, &info, GST_MAP_READ))
-//         {
-//             const guint8 *buffer_data = info.data;
-//             const gsize buffer_size = info.size;
-
-//             // Send data to all active clients
-//             // TODO Protect for the case of a simultaneous write
-//             for (const auto &client_sockaddr : client_sockaddrs)
-//             {
-//                 if (sendto(socket_ext, buffer_data, buffer_size, 0, (struct sockaddr *)&client_sockaddr, sizeof(client_sockaddr)) < 0)
-//                 {
-//                     std::cerr << "Failed to send to client." << std::endl;
-//                     continue;
-//                 }
-//             }
-
-//             gst_buffer_unmap(buffer, &info);
-//         }
-
-//         gst_sample_unref(sample);
-//     }
-// }
+// Auto-increments for now
+int port_gst = 5000;
 
 int main()
 {
@@ -79,16 +45,6 @@ int main()
 
     // Create processing pipeline
     GstElement *processing_pipeline = gst_parse_launch(processing_pipeline_desc, nullptr);
-
-    // Get the appsrc element of the processing pipeline
-    // GstElement *appsrc = gst_bin_get_by_name(GST_BIN(processing_pipeline), "appsrc");
-    // The following is for a live timestamped stream
-    // g_object_set(G_OBJECT(appsrc), "stream-type", 0, "is-live", TRUE, "format", GST_FORMAT_TIME, nullptr);
-
-    // Get the appsink element of the processing pipeline
-    // GstElement *appsink = gst_bin_get_by_name(GST_BIN(processing_pipeline), "appsink");
-
-    // TODO Almost everything above is not cleaned up afterwards
 
     // Socket that external clients send to
     int socket_ext = socket(AF_INET, SOCK_DGRAM, 0);
@@ -142,10 +98,6 @@ int main()
     fds[1].fd = socket_int;
     fds[1].events = POLLIN;
 
-    // std::thread route_thread(route, GST_APP_SINK(appsink), socket_ext);
-
-    // auto start_time = std::chrono::steady_clock::now();
-
     gst_element_set_state(processing_pipeline, GST_STATE_PLAYING);
 
     while (true)
@@ -169,58 +121,27 @@ int main()
                 continue;
             }
 
-            // TODO Remove this and buffer printing. This is for printing only and will break things if the buffer is full.
-            // buffer[bytes_read] = '\0';
-            // std::cout << "Received data on socket_ext: '" << buffer << "' from " << inet_ntoa(client_sockaddr.sin_addr) << ":" << ntohs(client_sockaddr.sin_port) << std::endl;
-
             // Add client to active clients, if client is not already there.
             if (client_sockaddrs.count(client_sockaddr) == 0)
             {
                 client_sockaddrs.insert(client_sockaddr);
-                ports.push_back(client_sockaddr.sin_port);
+
+                sockaddr_in sockaddr_udpsrc{};
+                sockaddr_udpsrc.sin_family = AF_INET;
+                inet_pton(AF_INET, "127.0.0.1", &(sockaddr_udpsrc.sin_addr));
+                sockaddr_udpsrc.sin_port = htons(port_gst);
+                // FIXME port is not enough, the whole sockaddr is needed, host, port
+                map_gst[client_sockaddr.sin_port] = sockaddr_udpsrc;
+                port_gst++;
             }
 
-            sockaddr_in sockaddr_udpsrc_0{};
-            sockaddr_udpsrc_0.sin_family = AF_INET;
-            inet_pton(AF_INET, "127.0.0.1", &(sockaddr_udpsrc_0.sin_addr));
-            sockaddr_udpsrc_0.sin_port = htons(5000);
+            sockaddr_in sockaddr_udpsrc_gst = map_gst[client_sockaddr.sin_port];
 
-            sockaddr_in sockaddr_udpsrc_1{};
-            sockaddr_udpsrc_1.sin_family = AF_INET;
-            inet_pton(AF_INET, "127.0.0.1", &(sockaddr_udpsrc_1.sin_addr));
-            sockaddr_udpsrc_1.sin_port = htons(5001);
-
-            if (client_sockaddr.sin_port == ports[0])
+            if (sendto(socket_ext, buffer, bytes_read, 0, (struct sockaddr *)&sockaddr_udpsrc_gst, sizeof(sockaddr_udpsrc_gst)) < 0)
             {
-                std::cout << "First." << std::endl;
-                if (sendto(socket_ext, buffer, bytes_read, 0, (struct sockaddr *)&sockaddr_udpsrc_0, sizeof(sockaddr_udpsrc_0)) < 0)
-                {
-                    std::cerr << "Failed to send to GStreamer." << std::endl;
-                    continue;
-                }
+                std::cerr << "Failed to send to GStreamer." << std::endl;
+                continue;
             }
-            else
-            {
-                std::cout << "Second." << std::endl;
-                if (sendto(socket_ext, buffer, bytes_read, 0, (struct sockaddr *)&sockaddr_udpsrc_1, sizeof(sockaddr_udpsrc_1)) < 0)
-                {
-                    std::cerr << "Failed to send to GStreamer." << std::endl;
-                    continue;
-                }
-            }
-
-            // GstBuffer *gst_buffer = gst_buffer_new_allocate(nullptr, bytes_read, nullptr);
-            // const auto bytes_copied = gst_buffer_fill(gst_buffer, 0, buffer, bytes_read);
-            // auto now_time = std::chrono::steady_clock::now();
-            // GST_BUFFER_PTS(gst_buffer) = std::chrono::duration_cast<std::chrono::nanoseconds>(now_time - start_time).count();
-            // const auto result = gst_app_src_push_buffer(GST_APP_SRC(appsrc), gst_buffer);
-
-            // if (result != GST_FLOW_OK)
-            // {
-            //     std::cerr << "Failed to push buffer to appsrc." << std::endl;
-            //     gst_object_unref(processing_pipeline);
-            //     return 1;
-            // }
         }
 
         // Check whether socket_int has data
@@ -234,9 +155,6 @@ int main()
                 std::cerr << "Failed to receive from GStreamer." << std::endl;
                 continue;
             }
-            // TODO Remove this and buffer printing. This is for printing only and will break things if the buffer is full.
-            // buffer[bytes_read] = '\0';
-            // std::cout << "Received data on socket_int: '" << buffer << "' from " << inet_ntoa(client_sockaddr.sin_addr) << ":" << ntohs(client_sockaddr.sin_port) << std::endl;
 
             // Send received data from GStreamer to all active clients
             for (const auto &client_sockaddr : client_sockaddrs)
