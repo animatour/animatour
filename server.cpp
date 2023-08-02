@@ -12,8 +12,6 @@
 const int BUFFER_SIZE = 4096;
 // TODO Rename this to PORT, after the other one below it is discarded
 const int PORT_EXT = 62000;
-// TODO Discard this and all related functionality OR dynamically take a port number for GStreamer pipeline output
-const int PORT_INT = 63000;
 
 struct sockaddr_in_cmp
 {
@@ -41,7 +39,7 @@ int main()
     // Processing pipeline description (currently only flips horizontally)
     // const char *processing_pipeline_desc = "appsrc name=appsrc caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! decodebin ! videoscale ! videoconvert ! videoflip method=horizontal-flip ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! appsink name=appsink";
     // Based on `gst-launch-1.0 compositor name=comp sink_0::xpos=0 sink_0::ypos=0 sink_1::xpos=320 sink_1::ypos=0 sink_2::xpos=640 sink_2::ypos=0 sink_3::xpos=0 sink_3::ypos=240 ! autovideosink videotestsrc pattern=white ! video/x-raw, framerate=30/1, width=320, height=240 ! comp. videotestsrc pattern=red ! videobox ! video/x-raw, framerate=60/1, width=320, height=240 ! comp. videotestsrc pattern=green ! videobox ! video/x-raw, framerate=30/1, width=320, height=240 ! comp. videotestsrc pattern=blue ! videobox ! video/x-raw, framerate=30/1, width=320, height=240 ! comp.`
-    const char *processing_pipeline_desc = "compositor name=compositor sink_0::xpos=0 sink_0::ypos=0 sink_1::xpos=320 sink_1::ypos=0 sink_2::xpos=640 sink_2::ypos=0 sink_3::xpos=0 sink_3::ypos=240 ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=127.0.0.1 port=63000 udpsrc name=udpsrc_0 port=5000 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoscale ! videoconvert ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor. videotestsrc pattern=red ! videobox ! video/x-raw, framerate=60/1, width=320, height=240 ! compositor. videotestsrc pattern=green ! videobox ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor. udpsrc name=udpsrc_1 port=5001 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoscale ! videoconvert ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor.";
+    const char *processing_pipeline_desc = "compositor name=compositor sink_0::xpos=0 sink_0::ypos=0 sink_1::xpos=320 sink_1::ypos=0 sink_2::xpos=640 sink_2::ypos=0 sink_3::xpos=0 sink_3::ypos=240 ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=127.0.0.1 udpsrc name=udpsrc_0 port=5000 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoscale ! videoconvert ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor. videotestsrc pattern=red ! videobox ! video/x-raw, framerate=60/1, width=320, height=240 ! compositor. videotestsrc pattern=green ! videobox ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor. udpsrc name=udpsrc_1 port=5001 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoscale ! videoconvert ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor.";
 
     // Create processing pipeline
     GstElement *processing_pipeline = gst_parse_launch(processing_pipeline_desc, nullptr);
@@ -76,13 +74,27 @@ int main()
     sockaddr_in sockaddr_int{};
     sockaddr_int.sin_family = AF_INET;
     inet_pton(AF_INET, "127.0.0.1", &(sockaddr_int.sin_addr));
-    sockaddr_int.sin_port = htons(PORT_INT);
+    sockaddr_int.sin_port = htons(0);
 
     if (bind(socket_int, (struct sockaddr *)&sockaddr_int, sizeof(sockaddr_int)) < 0)
     {
         std::cerr << "Failed to bind socket_int." << std::endl;
         return 1;
     }
+
+    socklen_t sockaddr_int_len = sizeof(sockaddr_int);
+    if (getsockname(socket_int, (struct sockaddr *)&sockaddr_int, &sockaddr_int_len) == -1)
+    {
+        std::cerr << "Failed to get socket name." << std::endl;
+        return 1;
+    }
+
+    // Extract the port number from sockaddr_int
+    unsigned short port_assigned = ntohs(sockaddr_int.sin_port);
+    std::cout << "Assigned port: " << port_assigned << std::endl;
+
+    GstElement *udpsink = gst_bin_get_by_name(GST_BIN(processing_pipeline), "udpsink");
+    g_object_set(udpsink, "port", port_assigned, nullptr);
 
     struct pollfd fds[2];
 
