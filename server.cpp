@@ -6,6 +6,7 @@
 #include <iostream>
 #include <set>
 #include <thread>
+#include <vector>
 
 // TODO Check whether this should be higher
 const int BUFFER_SIZE = 4096;
@@ -25,6 +26,8 @@ struct sockaddr_in_cmp
 };
 
 std::set<sockaddr_in, sockaddr_in_cmp> client_sockaddrs;
+
+std::vector<int> ports;
 
 /**
  * Get data from the `appsink` at the end of the GStreamer pipeline and
@@ -174,6 +177,7 @@ int main()
             if (client_sockaddrs.count(client_sockaddr) == 0)
             {
                 client_sockaddrs.insert(client_sockaddr);
+                ports.push_back(client_sockaddr.sin_port);
             }
 
             sockaddr_in sockaddr_udpsrc_0{};
@@ -181,10 +185,28 @@ int main()
             inet_pton(AF_INET, "127.0.0.1", &(sockaddr_udpsrc_0.sin_addr));
             sockaddr_udpsrc_0.sin_port = htons(5000);
 
-            if (sendto(socket_ext, buffer, bytes_read, 0, (struct sockaddr *)&sockaddr_udpsrc_0, sizeof(sockaddr_udpsrc_0)) < 0)
+            sockaddr_in sockaddr_udpsrc_1{};
+            sockaddr_udpsrc_1.sin_family = AF_INET;
+            inet_pton(AF_INET, "127.0.0.1", &(sockaddr_udpsrc_1.sin_addr));
+            sockaddr_udpsrc_1.sin_port = htons(5001);
+
+            if (client_sockaddr.sin_port == ports[0])
             {
-                std::cerr << "Failed to send to GStreamer." << std::endl;
-                continue;
+                std::cout << "First." << std::endl;
+                if (sendto(socket_ext, buffer, bytes_read, 0, (struct sockaddr *)&sockaddr_udpsrc_0, sizeof(sockaddr_udpsrc_0)) < 0)
+                {
+                    std::cerr << "Failed to send to GStreamer." << std::endl;
+                    continue;
+                }
+            }
+            else
+            {
+                std::cout << "Second." << std::endl;
+                if (sendto(socket_ext, buffer, bytes_read, 0, (struct sockaddr *)&sockaddr_udpsrc_1, sizeof(sockaddr_udpsrc_1)) < 0)
+                {
+                    std::cerr << "Failed to send to GStreamer." << std::endl;
+                    continue;
+                }
             }
 
             // GstBuffer *gst_buffer = gst_buffer_new_allocate(nullptr, bytes_read, nullptr);
