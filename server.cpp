@@ -3,6 +3,7 @@
 #include <gst/gst.h>
 #include <poll.h>
 #include <unistd.h>
+#include <chrono>
 #include <iostream>
 #include <map>
 #include <set>
@@ -27,6 +28,8 @@ std::set<sockaddr_in, sockaddr_in_cmp> client_sockaddrs;
 
 // Maps client port to GStreamer pipeline udpsrc address
 std::map<u_int, sockaddr_in> map_gst;
+
+std::map<u_int, uint64_t> client_activity;
 
 // GStreamer pipeline unused udpsrc socket addresses
 // Use as a stack? Initialize in reverse?
@@ -170,6 +173,8 @@ int main()
     GstElement *udpsrc_1 = gst_bin_get_by_name(GST_BIN(processing_pipeline), "udpsrc_1");
     g_object_set(udpsrc_1, "socket", udpsrc_gsocks[0], nullptr);
 
+    uint64_t client_activity_check = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+
     gst_element_set_state(processing_pipeline, GST_STATE_PLAYING);
 
     while (true)
@@ -206,6 +211,8 @@ int main()
                 }
             }
 
+            client_activity[client_sockaddr.sin_port] = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+
             // This is the way to go (maybe without copy), get the address to use with sendto.
             // FIXME Handle the case that no client exists, because of no unused above.
             sockaddr_in sockaddr_udpsrc_gst = map_gst[client_sockaddr.sin_port];
@@ -238,6 +245,13 @@ int main()
                     continue;
                 }
             }
+        }
+
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - client_activity_check > 10000)
+        {
+            std::cout << "---- Activity check ----" << std::endl;
+            client_activity_check = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            std::cout << "------------------------" << std::endl;
         }
 
         // Print active clients
