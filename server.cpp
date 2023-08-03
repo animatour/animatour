@@ -11,8 +11,7 @@
 
 // TODO Check whether this should be higher
 const int BUFFER_SIZE = 4096;
-// TODO Rename this to PORT, after the other one below it is discarded
-const int PORT_EXT = 62000;
+const int SERVER_PORT = 62000;
 
 struct sockaddr_in_cmp
 {
@@ -29,10 +28,60 @@ std::set<sockaddr_in, sockaddr_in_cmp> client_sockaddrs;
 // Maps client port to GStreamer pipeline udpsrc address
 std::map<u_int, sockaddr_in> map_gst;
 
-std::vector<guint16> ports;
+// GStreamer pipeline unused udpsrc socket addresses
+// Use as a stack? Initialize in reverse?
+// TODO Initialize with specific size for efficiency, with reserve?
+std::vector<sockaddr_in> udpsrc_sockaddrs_unused;
 
-// FIXME This is problematic, do not go at it this way. Also take care of removing idle stuff.
-int i = 0;
+std::vector<int> udpsrc_socks;
+
+std::vector<GSocket *> udpsrc_gsocks;
+
+/**
+ * Initialize udpsrc elements. FIXME Do this or change name and description.
+ */
+void init_udpsrcs()
+{
+    for (int i = 0; i < 2; i++)
+    {
+        int udpsrc_sock = socket(AF_INET, SOCK_DGRAM, 0);
+        if (udpsrc_sock == -1)
+        {
+            std::cerr << "Failed to create udpsrc_sock." << std::endl;
+            return;
+        }
+
+        sockaddr_in udpsrc_sockaddr{};
+        udpsrc_sockaddr.sin_family = AF_INET;
+        inet_pton(AF_INET, "127.0.0.1", &(udpsrc_sockaddr.sin_addr));
+        udpsrc_sockaddr.sin_port = htons(0); // Assign any port
+
+        if (bind(udpsrc_sock, (struct sockaddr *)&udpsrc_sockaddr, sizeof(udpsrc_sockaddr)) == -1)
+        {
+            std::cerr << "Failed to bind udpsrc_sock." << std::endl;
+            return;
+        }
+
+        socklen_t udpsrc_sockaddr_len = sizeof(udpsrc_sockaddr);
+        if (getsockname(udpsrc_sock, (struct sockaddr *)&udpsrc_sockaddr, &udpsrc_sockaddr_len) == -1)
+        {
+            std::cerr << "Failed to get udpsrc_sock name." << std::endl;
+            return;
+        }
+
+        GSocket *udpsrc_gsock = g_socket_new_from_fd(udpsrc_sock, nullptr);
+
+        if (udpsrc_gsock == nullptr)
+        {
+            std::cerr << "Failed to create udpsrc_gsock." << std::endl;
+            return;
+        }
+
+        udpsrc_socks.push_back(udpsrc_sock);
+        udpsrc_sockaddrs_unused.push_back(udpsrc_sockaddr);
+        udpsrc_gsocks.push_back(udpsrc_gsock);
+    }
+}
 
 int main()
 {
@@ -58,7 +107,7 @@ int main()
     sockaddr_in sockaddr_ext{};
     sockaddr_ext.sin_family = AF_INET;
     inet_pton(AF_INET, "0.0.0.0", &(sockaddr_ext.sin_addr));
-    sockaddr_ext.sin_port = htons(PORT_EXT);
+    sockaddr_ext.sin_port = htons(SERVER_PORT);
 
     if (bind(socket_ext, (struct sockaddr *)&sockaddr_ext, sizeof(sockaddr_ext)) < 0)
     {
@@ -113,66 +162,13 @@ int main()
     fds[1].fd = socket_int;
     fds[1].events = POLLIN;
 
-    // Create a new GSocket using the GInetSocketAddress with UDP protocol
-    GSocket *socket = g_socket_new(G_SOCKET_FAMILY_IPV4, G_SOCKET_TYPE_DATAGRAM, G_SOCKET_PROTOCOL_UDP, NULL);
-
-    // Create a GInetSocketAddress with any IP and port 0 to let the system assign a port
-    GSocketAddress *address = G_SOCKET_ADDRESS(g_inet_socket_address_new(g_inet_address_new_any(G_SOCKET_FAMILY_IPV4), 0));
-
-    // Bind the socket to the address
-    if (g_socket_bind(socket, address, TRUE, NULL) == FALSE)
-    {
-        g_object_unref(socket);
-        g_object_unref(address);
-        std::cerr << "Failed to bind the socket to the address." << std::endl;
-        return 1;
-    }
-
-    // Get the assigned port number
-    GSocketAddress *bound_address = g_socket_get_local_address(socket, NULL);
-    GInetSocketAddress *bound_inet_address = G_INET_SOCKET_ADDRESS(bound_address);
-    guint16 port = g_inet_socket_address_get_port(bound_inet_address);
-
-    std::cout << "Socket bound to port: " << port << std::endl;
+    init_udpsrcs();
 
     GstElement *udpsrc_0 = gst_bin_get_by_name(GST_BIN(processing_pipeline), "udpsrc_0");
-    g_object_set(udpsrc_0, "socket", socket, nullptr);
-
-    ports.push_back(port);
-
-    // Create a new GSocket using the GInetSocketAddress with UDP protocol
-    GSocket *socket2 = g_socket_new(G_SOCKET_FAMILY_IPV4, G_SOCKET_TYPE_DATAGRAM, G_SOCKET_PROTOCOL_UDP, NULL);
-
-    // Create a GInetSocketAddress with any IP and port 0 to let the system assign a port
-    GSocketAddress *address2 = G_SOCKET_ADDRESS(g_inet_socket_address_new(g_inet_address_new_any(G_SOCKET_FAMILY_IPV4), 0));
-
-    // Bind the socket to the address
-    if (g_socket_bind(socket2, address2, TRUE, NULL) == FALSE)
-    {
-        g_object_unref(socket2);
-        g_object_unref(address2);
-        std::cerr << "Failed to bind the socket to the address." << std::endl;
-        return 1;
-    }
-
-    // Get the assigned port number
-    GSocketAddress *bound_address2 = g_socket_get_local_address(socket2, NULL);
-    GInetSocketAddress *bound_inet_address2 = G_INET_SOCKET_ADDRESS(bound_address2);
-    guint16 port2 = g_inet_socket_address_get_port(bound_inet_address2);
-
-    std::cout << "Socket bound to port: " << port2 << std::endl;
+    g_object_set(udpsrc_0, "socket", udpsrc_gsocks[1], nullptr);
 
     GstElement *udpsrc_1 = gst_bin_get_by_name(GST_BIN(processing_pipeline), "udpsrc_1");
-    g_object_set(udpsrc_1, "socket", socket2, nullptr);
-
-    ports.push_back(port2);
-
-    // Your UDP socket is now ready for use.
-
-    // Don't forget to clean up
-    // g_object_unref(socket);
-    // g_object_unref(bound_address);
-    // g_object_unref(address);
+    g_object_set(udpsrc_1, "socket", udpsrc_gsocks[0], nullptr);
 
     gst_element_set_state(processing_pipeline, GST_STATE_PLAYING);
 
@@ -202,16 +198,16 @@ int main()
             {
                 client_sockaddrs.insert(client_sockaddr);
 
-                sockaddr_in sockaddr_udpsrc{};
-                sockaddr_udpsrc.sin_family = AF_INET;
-                inet_pton(AF_INET, "127.0.0.1", &(sockaddr_udpsrc.sin_addr));
-                sockaddr_udpsrc.sin_port = htons(ports[i]);
-                // FIXME port is not enough, the whole sockaddr is needed, host, port
-                map_gst[client_sockaddr.sin_port] = sockaddr_udpsrc;
-                i++;
+                if (udpsrc_sockaddrs_unused.size() > 0)
+                {
+                    // FIXME port is not enough, the whole sockaddr is needed, host, port
+                    map_gst[client_sockaddr.sin_port] = udpsrc_sockaddrs_unused.back();
+                    udpsrc_sockaddrs_unused.pop_back();
+                }
             }
 
             // This is the way to go (maybe without copy), get the address to use with sendto.
+            // FIXME Handle the case that no client exists, because of no unused above.
             sockaddr_in sockaddr_udpsrc_gst = map_gst[client_sockaddr.sin_port];
 
             if (sendto(socket_ext, buffer, bytes_read, 0, (struct sockaddr *)&sockaddr_udpsrc_gst, sizeof(sockaddr_udpsrc_gst)) < 0)
