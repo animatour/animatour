@@ -26,7 +26,7 @@ struct sockaddr_in_cmp
 std::set<sockaddr_in, sockaddr_in_cmp> client_sockaddrs;
 
 // Maps client address to GStreamer pipeline udpsrc address
-std::map<sockaddr_in, sockaddr_in, sockaddr_in_cmp> client_routing;
+std::map<sockaddr_in, sockaddr_in, sockaddr_in_cmp> client_routes;
 
 // Maps client address to last activity time
 std::map<sockaddr_in, gint64, sockaddr_in_cmp> client_activity;
@@ -146,7 +146,6 @@ int main()
 
     // Extract the port number from sockaddr_int
     unsigned short port_assigned = ntohs(sockaddr_int.sin_port);
-    std::cout << "Assigned port: " << port_assigned << std::endl;
 
     GstElement *udpsink = gst_bin_get_by_name(GST_BIN(processing_pipeline), "udpsink");
     g_object_set(udpsink, "port", port_assigned, nullptr);
@@ -178,17 +177,22 @@ int main()
     gint64 current_time = g_get_monotonic_time();
     gint64 client_activity_check = current_time;
 
+    std::vector<sockaddr_in> client_sockaddrs_inactive;
+
+    bool is_updated;
+
     while (true)
     {
         // Block until a socket event occurs
         int poll_res = poll(fds, 2, -1);
-        if (poll_res < 0)
+        if (poll_res == -1)
         {
             std::cerr << "Poll error." << std::endl;
             return 1;
         }
 
         current_time = g_get_monotonic_time();
+        is_updated = false;
 
         // Check whether socket_ext has data
         if (fds[0].revents & POLLIN)
@@ -201,29 +205,28 @@ int main()
                 continue;
             }
 
-            // Add client to active clients, if client is not already there.
+            // Add client to active clients, if client is not already there
             if (client_sockaddrs.count(client_sockaddr) == 0)
             {
-                client_sockaddrs.insert(client_sockaddr);
-
                 if (udpsrc_sockaddrs_available.size() > 0)
                 {
-                    // FIXME port is not enough, the whole sockaddr is needed, host, port
-                    client_routing[client_sockaddr] = udpsrc_sockaddrs_available.back();
+                    client_sockaddrs.insert(client_sockaddr);
+                    client_routes[client_sockaddr] = udpsrc_sockaddrs_available.back();
                     udpsrc_sockaddrs_available.pop_back();
+                    is_updated = true;
                 }
             }
 
             client_activity[client_sockaddr] = current_time;
 
-            // This is the way to go (maybe without copy), get the address to use with sendto.
-            // FIXME Handle the case that no client exists, because of no unused above.
-            sockaddr_in udpsrc_sockaddr = client_routing[client_sockaddr];
-            // FIXME Is it OK to use this socket?
-            if (sendto(socket_ext, buffer, bytes_read, 0, (struct sockaddr *)&udpsrc_sockaddr, sizeof(udpsrc_sockaddr)) < 0)
+            if (auto client_route = client_routes.find(client_sockaddr); client_route != client_routes.end())
             {
-                std::cerr << "Failed to send to GStreamer." << std::endl;
-                continue;
+                // TODO Check whether it is OK to use socket_ext to send
+                if (sendto(socket_ext, buffer, bytes_read, 0, (struct sockaddr *)&(client_route->second), sizeof(client_route->second)) < 0)
+                {
+                    std::cerr << "Failed to send to GStreamer." << std::endl;
+                    continue;
+                }
             }
         }
 
@@ -250,37 +253,40 @@ int main()
             }
         }
 
-        if (current_time - client_activity_check > 10000000)
+        if (current_time - client_activity_check > 8000000)
         {
             client_activity_check = current_time;
-            std::vector<sockaddr_in> client_sockaddrs_inactive;
+            client_sockaddrs_inactive.clear();
+
             for (const auto &client_sockaddr : client_sockaddrs)
             {
-                if (current_time - client_activity[client_sockaddr] > 4000000)
+                if (current_time - client_activity[client_sockaddr] > 2000000)
                 {
                     client_sockaddrs_inactive.push_back(client_sockaddr);
                 }
             }
+
             for (const auto &client_sockaddr : client_sockaddrs_inactive)
             {
-                udpsrc_sockaddrs_available.push_back(client_routing[client_sockaddr]);
+                udpsrc_sockaddrs_available.push_back(client_routes[client_sockaddr]);
                 client_sockaddrs.erase(client_sockaddr);
-                client_routing.erase(client_sockaddr);
+                client_routes.erase(client_sockaddr);
                 client_activity.erase(client_sockaddr);
+                is_updated = true;
             }
-            std::cout << "---- Activity check ----" << std::endl;
-            std::cout << "------------------------" << std::endl;
         }
 
-        // Print active clients
-        std::cout << "---- Active clients ----" << std::endl;
-        for (const auto &client_sockaddr : client_sockaddrs)
+        if (is_updated)
         {
-            char client_ip[INET_ADDRSTRLEN];
-            inet_ntop(AF_INET, &(client_sockaddr.sin_addr), client_ip, INET_ADDRSTRLEN);
-            std::cout << client_ip << ":" << ntohs(client_sockaddr.sin_port) << std::endl;
+            std::cout << "---- Active clients ----" << std::endl;
+            for (const auto &client_sockaddr : client_sockaddrs)
+            {
+                char client_ip[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &(client_sockaddr.sin_addr), client_ip, INET_ADDRSTRLEN);
+                std::cout << client_ip << ":" << ntohs(client_sockaddr.sin_port) << std::endl;
+            }
+            std::cout << "------------------------" << std::endl;
         }
-        std::cout << "------------------------" << std::endl;
     }
 
     close(socket_ext);
