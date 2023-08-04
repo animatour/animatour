@@ -3,7 +3,6 @@
 #include <gst/gst.h>
 #include <poll.h>
 #include <unistd.h>
-#include <chrono>
 #include <iostream>
 #include <map>
 #include <set>
@@ -26,15 +25,18 @@ struct sockaddr_in_cmp
 
 std::set<sockaddr_in, sockaddr_in_cmp> client_sockaddrs;
 
-// Maps client port to GStreamer pipeline udpsrc address
-std::map<u_int, sockaddr_in> map_gst;
+// Maps client address to GStreamer pipeline udpsrc address
+// FIXME Use full host/port address, not just the port
+std::map<uint, sockaddr_in> client_routing;
 
-std::map<u_int, uint64_t> client_activity;
+// Maps client address to last activity time
+// FIXME Use full host/port address, not just the port
+std::map<uint, gint64> client_activity;
 
 // GStreamer pipeline unused udpsrc socket addresses
 // Use as a stack? Initialize in reverse?
 // TODO Initialize with specific size for efficiency, with reserve?
-std::vector<sockaddr_in> udpsrc_sockaddrs_unused;
+std::vector<sockaddr_in> udpsrc_sockaddrs_available;
 
 std::vector<int> udpsrc_socks;
 
@@ -81,7 +83,7 @@ void init_udpsrcs()
         }
 
         udpsrc_socks.push_back(udpsrc_sock);
-        udpsrc_sockaddrs_unused.push_back(udpsrc_sockaddr);
+        udpsrc_sockaddrs_available.push_back(udpsrc_sockaddr);
         udpsrc_gsocks.push_back(udpsrc_gsock);
     }
 }
@@ -173,9 +175,10 @@ int main()
     GstElement *udpsrc_1 = gst_bin_get_by_name(GST_BIN(processing_pipeline), "udpsrc_1");
     g_object_set(udpsrc_1, "socket", udpsrc_gsocks[0], nullptr);
 
-    uint64_t client_activity_check = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-
     gst_element_set_state(processing_pipeline, GST_STATE_PLAYING);
+
+    gint64 current_time = g_get_monotonic_time();
+    gint64 client_activity_check = current_time;
 
     while (true)
     {
@@ -186,6 +189,8 @@ int main()
             std::cerr << "Poll error." << std::endl;
             return 1;
         }
+
+        current_time = g_get_monotonic_time();
 
         // Check whether socket_ext has data
         if (fds[0].revents & POLLIN)
@@ -203,21 +208,21 @@ int main()
             {
                 client_sockaddrs.insert(client_sockaddr);
 
-                if (udpsrc_sockaddrs_unused.size() > 0)
+                if (udpsrc_sockaddrs_available.size() > 0)
                 {
                     // FIXME port is not enough, the whole sockaddr is needed, host, port
-                    map_gst[client_sockaddr.sin_port] = udpsrc_sockaddrs_unused.back();
-                    udpsrc_sockaddrs_unused.pop_back();
+                    client_routing[client_sockaddr.sin_port] = udpsrc_sockaddrs_available.back();
+                    udpsrc_sockaddrs_available.pop_back();
                 }
             }
 
-            client_activity[client_sockaddr.sin_port] = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            client_activity[client_sockaddr.sin_port] = current_time;
 
             // This is the way to go (maybe without copy), get the address to use with sendto.
             // FIXME Handle the case that no client exists, because of no unused above.
-            sockaddr_in sockaddr_udpsrc_gst = map_gst[client_sockaddr.sin_port];
-
-            if (sendto(socket_ext, buffer, bytes_read, 0, (struct sockaddr *)&sockaddr_udpsrc_gst, sizeof(sockaddr_udpsrc_gst)) < 0)
+            sockaddr_in udpsrc_sockaddr = client_routing[client_sockaddr.sin_port];
+            // FIXME Is it OK to use this socket?
+            if (sendto(socket_ext, buffer, bytes_read, 0, (struct sockaddr *)&udpsrc_sockaddr, sizeof(udpsrc_sockaddr)) < 0)
             {
                 std::cerr << "Failed to send to GStreamer." << std::endl;
                 continue;
@@ -247,10 +252,25 @@ int main()
             }
         }
 
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - client_activity_check > 10000)
+        if (current_time - client_activity_check > 10000000)
         {
+            client_activity_check = current_time;
+            std::vector<sockaddr_in> client_sockaddrs_inactive;
+            for (const auto &client_sockaddr : client_sockaddrs)
+            {
+                if (current_time - client_activity[client_sockaddr.sin_port] > 4000000)
+                {
+                    client_sockaddrs_inactive.push_back(client_sockaddr);
+                }
+            }
+            for (const auto &client_sockaddr : client_sockaddrs_inactive)
+            {
+                udpsrc_sockaddrs_available.push_back(client_routing[client_sockaddr.sin_port]);
+                client_sockaddrs.erase(client_sockaddr);
+                client_routing.erase(client_sockaddr.sin_port);
+                client_activity.erase(client_sockaddr.sin_port);
+            }
             std::cout << "---- Activity check ----" << std::endl;
-            client_activity_check = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
             std::cout << "------------------------" << std::endl;
         }
 
