@@ -26,12 +26,10 @@ struct sockaddr_in_cmp
 std::set<sockaddr_in, sockaddr_in_cmp> client_sockaddrs;
 
 // Maps client address to GStreamer pipeline udpsrc address
-// FIXME Use full host/port address, not just the port
-std::map<uint, sockaddr_in> client_routing;
+std::map<sockaddr_in, sockaddr_in, sockaddr_in_cmp> client_routing;
 
 // Maps client address to last activity time
-// FIXME Use full host/port address, not just the port
-std::map<uint, gint64> client_activity;
+std::map<sockaddr_in, gint64, sockaddr_in_cmp> client_activity;
 
 // GStreamer pipeline unused udpsrc socket addresses
 // Use as a stack? Initialize in reverse?
@@ -211,16 +209,16 @@ int main()
                 if (udpsrc_sockaddrs_available.size() > 0)
                 {
                     // FIXME port is not enough, the whole sockaddr is needed, host, port
-                    client_routing[client_sockaddr.sin_port] = udpsrc_sockaddrs_available.back();
+                    client_routing[client_sockaddr] = udpsrc_sockaddrs_available.back();
                     udpsrc_sockaddrs_available.pop_back();
                 }
             }
 
-            client_activity[client_sockaddr.sin_port] = current_time;
+            client_activity[client_sockaddr] = current_time;
 
             // This is the way to go (maybe without copy), get the address to use with sendto.
             // FIXME Handle the case that no client exists, because of no unused above.
-            sockaddr_in udpsrc_sockaddr = client_routing[client_sockaddr.sin_port];
+            sockaddr_in udpsrc_sockaddr = client_routing[client_sockaddr];
             // FIXME Is it OK to use this socket?
             if (sendto(socket_ext, buffer, bytes_read, 0, (struct sockaddr *)&udpsrc_sockaddr, sizeof(udpsrc_sockaddr)) < 0)
             {
@@ -258,17 +256,17 @@ int main()
             std::vector<sockaddr_in> client_sockaddrs_inactive;
             for (const auto &client_sockaddr : client_sockaddrs)
             {
-                if (current_time - client_activity[client_sockaddr.sin_port] > 4000000)
+                if (current_time - client_activity[client_sockaddr] > 4000000)
                 {
                     client_sockaddrs_inactive.push_back(client_sockaddr);
                 }
             }
             for (const auto &client_sockaddr : client_sockaddrs_inactive)
             {
-                udpsrc_sockaddrs_available.push_back(client_routing[client_sockaddr.sin_port]);
+                udpsrc_sockaddrs_available.push_back(client_routing[client_sockaddr]);
                 client_sockaddrs.erase(client_sockaddr);
-                client_routing.erase(client_sockaddr.sin_port);
-                client_activity.erase(client_sockaddr.sin_port);
+                client_routing.erase(client_sockaddr);
+                client_activity.erase(client_sockaddr);
             }
             std::cout << "---- Activity check ----" << std::endl;
             std::cout << "------------------------" << std::endl;
