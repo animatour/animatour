@@ -208,6 +208,7 @@ int main()
             // Add client to active clients, if client is not already there
             if (client_sockaddrs.count(client_sockaddr) == 0)
             {
+                // TODO Handle the opposite case gracefully and do not fail silently
                 if (udpsrc_sockaddrs_available.size() > 0)
                 {
                     client_sockaddrs.insert(client_sockaddr);
@@ -217,10 +218,11 @@ int main()
                 }
             }
 
-            client_activity[client_sockaddr] = current_time;
-
+            // If a client route exists, store the client activity time and route to the associated udpsrc_sockaddr
             if (auto client_route = client_routes.find(client_sockaddr); client_route != client_routes.end())
             {
+                client_activity[client_sockaddr] = current_time;
+
                 // TODO Check whether it is OK to use socket_ext to send
                 if (sendto(socket_ext, buffer, bytes_read, 0, (struct sockaddr *)&(client_route->second), sizeof(client_route->second)) < 0)
                 {
