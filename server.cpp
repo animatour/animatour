@@ -3,6 +3,7 @@
 #include <gst/gst.h>
 #include <poll.h>
 #include <unistd.h>
+#include <algorithm>
 #include <iostream>
 #include <map>
 #include <set>
@@ -70,6 +71,7 @@ void init_position_points()
     position_points.push_back({320, 240});
 }
 
+// Available positions for placing clients, as a stack. The next available position to use is taken from the back.
 std::vector<size_t> positions_available;
 
 void init_positions_available()
@@ -82,6 +84,44 @@ void init_positions_available()
 
 // Maps udpsrc address to position
 std::map<sockaddr_in, size_t, sockaddr_in_cmp> udpsrc_positions;
+
+void compact_positions()
+{
+    // Ensure that at least one position is available
+    if (positions_available.size())
+    {
+        // Sort available positions in descending order
+        sort(positions_available.begin(), positions_available.end(), std::greater<size_t>());
+
+        auto lowest_position_available = positions_available.back();
+        // If the lowest available position is less than the client count, then there is at least one client with a higher position
+        if (lowest_position_available < client_sockaddrs.size())
+        {
+            for (const auto &client_sockaddr : client_sockaddrs)
+            {
+                auto udpsrc_sockaddr = client_routes[client_sockaddr];
+                auto udpsrc_position = udpsrc_positions[udpsrc_sockaddr];
+
+                // If the current client position is greater than the lowest available position, then the latter should be used for the client and the former should become available for later use
+                if (udpsrc_position > lowest_position_available)
+                {
+                    auto udpsrc_ix = udpsrc_ixs[udpsrc_sockaddr];
+                    auto pad = compositor_pads[udpsrc_ix];
+
+                    udpsrc_positions[udpsrc_sockaddr] = lowest_position_available;
+                    auto position_point = position_points[lowest_position_available];
+                    g_object_set(pad, "xpos", position_point.first, "ypos", position_point.second, nullptr);
+
+                    positions_available.pop_back();
+                    positions_available.push_back(udpsrc_position);
+
+                    sort(positions_available.begin(), positions_available.end(), std::greater<size_t>());
+                    lowest_position_available = positions_available.back();
+                }
+            }
+        }
+    }
+}
 
 /**
  * Initialize udpsrc elements. FIXME Do this or change name and description.
@@ -238,7 +278,8 @@ int main()
 
     std::vector<sockaddr_in> client_sockaddrs_inactive;
 
-    bool is_updated;
+    bool has_addition_occurred;
+    bool has_removal_occurred;
 
     while (true)
     {
@@ -251,7 +292,8 @@ int main()
         }
 
         current_time = g_get_monotonic_time();
-        is_updated = false;
+        has_addition_occurred = false;
+        has_removal_occurred = false;
 
         // Check whether socket_ext has data
         if (fds[0].revents & POLLIN)
@@ -288,7 +330,7 @@ int main()
                     positions_available.pop_back();
                     udpsrc_sockaddrs_available.pop_back();
 
-                    is_updated = true;
+                    has_addition_occurred = true;
                 }
             }
 
@@ -349,6 +391,7 @@ int main()
                 auto pad = compositor_pads[udpsrc_ix];
 
                 g_object_set(pad, "alpha", 0.0, nullptr);
+                g_object_set(pad, "xpos", 0, "ypos", 0, nullptr);
 
                 auto udpsrc_position = udpsrc_positions[udpsrc_sockaddr];
 
@@ -360,11 +403,16 @@ int main()
                 client_routes.erase(client_sockaddr);
                 client_activity.erase(client_sockaddr);
 
-                is_updated = true;
+                has_removal_occurred = true;
+            }
+
+            if (has_removal_occurred)
+            {
+                compact_positions();
             }
         }
 
-        if (is_updated)
+        if (has_addition_occurred || has_removal_occurred)
         {
             std::cout << "---- Active clients ----" << std::endl;
             for (const auto &client_sockaddr : client_sockaddrs)
