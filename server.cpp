@@ -390,8 +390,7 @@ int main()
                 auto udpsrc_ix = udpsrc_ixs[udpsrc_sockaddr];
                 auto pad = compositor_pads[udpsrc_ix];
 
-                g_object_set(pad, "alpha", 0.0, nullptr);
-                g_object_set(pad, "xpos", 0, "ypos", 0, nullptr);
+                g_object_set(pad, "alpha", 0.0, "xpos", 0, "ypos", 0, "width", 0, "height", 0, nullptr);
 
                 auto udpsrc_position = udpsrc_positions[udpsrc_sockaddr];
 
