@@ -9,11 +9,16 @@ int main(int argc, char *argv[])
     // Initialize GStreamer
     gst_init(nullptr, nullptr);
 
-    std::string device = (argc < 2) ? "/dev/video0" : argv[1];
+    std::string device = (argc < 2) ? "test" : argv[1];
     std::string host = (argc < 3) ? "127.0.0.1" : argv[2];
     std::string port = (argc < 4) ? "62000" : argv[3];
 
-    std::string camera_to_udp_pipeline_desc_str = "v4l2src device=" + device + " ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320,height=240 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=" + host + " port=" + port;
+    std::string camera_to_udp_pipeline_desc_str;
+
+    if (device != "test")
+        camera_to_udp_pipeline_desc_str = "v4l2src device=" + device + " ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320,height=240 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=" + host + " port=" + port;
+    else
+        camera_to_udp_pipeline_desc_str = "videotestsrc pattern=ball ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320,height=240 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=" + host + " port=" + port;
 
     // Playback pipeline description
     const char *udp_to_screen_pipeline_desc = "udpsrc name=udpsrc caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! decodebin ! videoconvert ! autovideosink";
