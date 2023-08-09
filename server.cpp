@@ -51,25 +51,29 @@ std::vector<GstPad *> compositor_pads;
 void init_compositor_pads(GstElement *compositor)
 {
     GstPad *sink;
-    sink = gst_element_get_static_pad(compositor, "sink_0");
-    compositor_pads.push_back(sink);
-    sink = gst_element_get_static_pad(compositor, "sink_1");
-    compositor_pads.push_back(sink);
-    sink = gst_element_get_static_pad(compositor, "sink_2");
-    compositor_pads.push_back(sink);
-    sink = gst_element_get_static_pad(compositor, "sink_3");
-    compositor_pads.push_back(sink);
+    for (int i = 0; i < MAX_CLIENTS; i++)
+    {
+        std::string sink_name = std::string("sink_") + std::to_string(i);
+        sink = gst_element_get_static_pad(compositor, sink_name.c_str());
+        compositor_pads.push_back(sink);
+    }
 }
 
 // Sequence of {i, j} compositor cell row index and column index pair, in order of usage
 std::vector<std::pair<uint8_t, uint8_t>> position_cells;
 
+// FIXME Create automatically based on MAX_CLIENTS and golden ratio
 void init_position_cells()
 {
     position_cells.push_back({0, 0});
     position_cells.push_back({0, 1});
     position_cells.push_back({1, 0});
     position_cells.push_back({1, 1});
+    position_cells.push_back({0, 2});
+    position_cells.push_back({1, 2});
+    position_cells.push_back({2, 0});
+    position_cells.push_back({2, 1});
+    position_cells.push_back({2, 2});
 }
 
 // Sequence of {x, y} compositor cell top-left point x coordinate and y coordinate pair, in order of usage
@@ -77,10 +81,10 @@ std::vector<std::pair<uint16_t, uint16_t>> position_points;
 
 void init_position_points()
 {
-    position_points.push_back({0, 0});
-    position_points.push_back({320, 0});
-    position_points.push_back({0, 240});
-    position_points.push_back({320, 240});
+    for (const auto &position_cell : position_cells)
+    {
+        position_points.push_back({320 * position_cell.second, 240 * position_cell.first});
+    }
 }
 
 // Available positions for placing clients, as a stack. The next available position to use is taken from the back.
@@ -88,10 +92,10 @@ std::vector<size_t> positions_available;
 
 void init_positions_available()
 {
-    positions_available.push_back(3);
-    positions_available.push_back(2);
-    positions_available.push_back(1);
-    positions_available.push_back(0);
+    for (int i = MAX_CLIENTS - 1; i >= 0; i--)
+    {
+        positions_available.push_back(i);
+    }
 }
 
 // Maps udpsrc address to position
@@ -166,11 +170,11 @@ void crop_videobox(uint8_t rows, uint8_t cols, GstElement *capsfilter)
 }
 
 /**
- * Initialize udpsrc elements. FIXME Do this or change name and description.
+ * Initializes udpsrc elements.
  */
-void init_udpsrcs()
+void init_udpsrcs(GstElement *pipeline)
 {
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < MAX_CLIENTS; i++)
     {
         int udpsrc_sock = socket(AF_INET, SOCK_DGRAM, 0);
         if (udpsrc_sock == -1)
@@ -205,6 +209,10 @@ void init_udpsrcs()
             return;
         }
 
+        std::string udpsrc_name = std::string("udpsrc_") + std::to_string(i);
+        GstElement *udpsrc = gst_bin_get_by_name(GST_BIN(pipeline), udpsrc_name.c_str());
+        g_object_set(udpsrc, "socket", udpsrc_gsock, nullptr);
+
         udpsrc_ixs[udpsrc_sockaddr] = i;
         udpsrc_socks.push_back(udpsrc_sock);
         udpsrc_sockaddrs_available.push_back(udpsrc_sockaddr);
@@ -235,8 +243,8 @@ int main()
 
     std::string pipeline_desc_str = make_pipeline_desc_str();
 
-    // Create processing pipeline
-    GstElement *processing_pipeline = gst_parse_launch(pipeline_desc_str.c_str(), nullptr);
+    // Create pipeline
+    GstElement *pipeline = gst_parse_launch(pipeline_desc_str.c_str(), nullptr);
 
     // Socket that external clients send to
     int socket_ext = socket(AF_INET, SOCK_DGRAM, 0);
@@ -286,7 +294,7 @@ int main()
     // Extract the port number from sockaddr_int
     unsigned short port_assigned = ntohs(sockaddr_int.sin_port);
 
-    GstElement *udpsink = gst_bin_get_by_name(GST_BIN(processing_pipeline), "udpsink");
+    GstElement *udpsink = gst_bin_get_by_name(GST_BIN(pipeline), "udpsink");
     g_object_set(udpsink, "port", port_assigned, nullptr);
 
     struct pollfd fds[2];
@@ -303,23 +311,11 @@ int main()
     fds[1].fd = socket_int;
     fds[1].events = POLLIN;
 
-    init_udpsrcs();
+    init_udpsrcs(pipeline);
 
-    GstElement *capsfilter = gst_bin_get_by_name(GST_BIN(processing_pipeline), "capsfilter");
+    GstElement *capsfilter = gst_bin_get_by_name(GST_BIN(pipeline), "capsfilter");
 
-    GstElement *udpsrc_0 = gst_bin_get_by_name(GST_BIN(processing_pipeline), "udpsrc_0");
-    g_object_set(udpsrc_0, "socket", udpsrc_gsocks[0], nullptr);
-
-    GstElement *udpsrc_1 = gst_bin_get_by_name(GST_BIN(processing_pipeline), "udpsrc_1");
-    g_object_set(udpsrc_1, "socket", udpsrc_gsocks[1], nullptr);
-
-    GstElement *udpsrc_2 = gst_bin_get_by_name(GST_BIN(processing_pipeline), "udpsrc_2");
-    g_object_set(udpsrc_2, "socket", udpsrc_gsocks[2], nullptr);
-
-    GstElement *udpsrc_3 = gst_bin_get_by_name(GST_BIN(processing_pipeline), "udpsrc_3");
-    g_object_set(udpsrc_3, "socket", udpsrc_gsocks[3], nullptr);
-
-    gst_element_set_state(processing_pipeline, GST_STATE_PLAYING);
+    gst_element_set_state(pipeline, GST_STATE_PLAYING);
 
     init_position_cells();
 
@@ -327,7 +323,7 @@ int main()
 
     init_positions_available();
 
-    GstElement *compositor = gst_bin_get_by_name(GST_BIN(processing_pipeline), "compositor");
+    GstElement *compositor = gst_bin_get_by_name(GST_BIN(pipeline), "compositor");
 
     init_compositor_pads(compositor);
 
