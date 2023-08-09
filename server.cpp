@@ -60,7 +60,18 @@ void init_compositor_pads(GstElement *compositor)
     compositor_pads.push_back(sink);
 }
 
-// Sequence of {xpos, ypos} compositor coordinates in order of usage
+// Sequence of {i, j} compositor cell row index and column index pair, in order of usage
+std::vector<std::pair<uint8_t, uint8_t>> position_cells;
+
+void init_position_cells()
+{
+    position_cells.push_back({0, 0});
+    position_cells.push_back({0, 1});
+    position_cells.push_back({1, 0});
+    position_cells.push_back({1, 1});
+}
+
+// Sequence of {x, y} compositor cell top-left point x coordinate and y coordinate pair, in order of usage
 std::vector<std::pair<uint16_t, uint16_t>> position_points;
 
 void init_position_points()
@@ -84,6 +95,25 @@ void init_positions_available()
 
 // Maps udpsrc address to position
 std::map<sockaddr_in, size_t, sockaddr_in_cmp> udpsrc_positions;
+
+uint8_t rows = 0;
+uint8_t cols = 0;
+
+void update_grid_size()
+{
+    uint8_t max_i = 0;
+    uint8_t max_j = 0;
+    for (const auto &client_sockaddr : client_sockaddrs)
+    {
+        auto udpsrc_sockaddr = client_routes[client_sockaddr];
+        auto udpsrc_position = udpsrc_positions[udpsrc_sockaddr];
+        auto position_cell = position_cells[udpsrc_position];
+        max_i = std::max(max_i, position_cell.first);
+        max_j = std::max(max_j, position_cell.second);
+    }
+    rows = max_i + 1;
+    cols = max_j + 1;
+}
 
 void compact_positions()
 {
@@ -121,6 +151,17 @@ void compact_positions()
             }
         }
     }
+}
+
+void crop_videobox(uint8_t rows, uint8_t cols, GstElement *capsfilter)
+{
+    uint16_t width = 320 * cols;
+    uint16_t height = 240 * rows;
+    GstCaps *caps = gst_caps_new_simple("video/x-raw",
+                                        "width", G_TYPE_INT, width,
+                                        "height", G_TYPE_INT, height,
+                                        nullptr);
+    g_object_set(capsfilter, "caps", caps, nullptr);
 }
 
 /**
@@ -179,7 +220,7 @@ int main()
     // const char *processing_pipeline_desc = "appsrc name=appsrc caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! decodebin ! videoscale ! videoconvert ! videoflip method=horizontal-flip ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! appsink name=appsink";
     // Based on `gst-launch-1.0 compositor name=comp sink_0::xpos=0 sink_0::ypos=0 sink_1::xpos=320 sink_1::ypos=0 sink_2::xpos=640 sink_2::ypos=0 sink_3::xpos=0 sink_3::ypos=240 ! autovideosink videotestsrc pattern=white ! video/x-raw, framerate=30/1, width=320, height=240 ! comp. videotestsrc pattern=red ! videobox ! video/x-raw, framerate=60/1, width=320, height=240 ! comp. videotestsrc pattern=green ! videobox ! video/x-raw, framerate=30/1, width=320, height=240 ! comp. videotestsrc pattern=blue ! videobox ! video/x-raw, framerate=30/1, width=320, height=240 ! comp.`
     // const char *processing_pipeline_desc = "compositor name=compositor background=black sink_0::xpos=0 sink_0::ypos=0 sink_1::xpos=320 sink_1::ypos=0 sink_2::xpos=640 sink_2::ypos=0 sink_3::xpos=0 sink_3::ypos=240 ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=127.0.0.1 udpsrc name=udpsrc_0 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoscale ! videoconvert ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor. videotestsrc pattern=red ! videobox ! video/x-raw, framerate=60/1, width=320, height=240 ! compositor. videotestsrc pattern=green ! videobox ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor. udpsrc name=udpsrc_1 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoscale ! videoconvert ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor.";
-    const char *processing_pipeline_desc = "compositor name=compositor background=black ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=127.0.0.1 udpsrc name=udpsrc_0 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoscale ! videoconvert ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor. udpsrc name=udpsrc_1 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoscale ! videoconvert ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor. udpsrc name=udpsrc_2 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoscale ! videoconvert ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor. udpsrc name=udpsrc_3 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoscale ! videoconvert ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor.";
+    const char *processing_pipeline_desc = "compositor name=compositor background=black zero-size-is-unscaled=false ! videobox autocrop=true ! capsfilter name=capsfilter caps=\"video/x-raw, width=320, height=240\" ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=127.0.0.1 udpsrc name=udpsrc_0 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoscale ! videoconvert ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor. udpsrc name=udpsrc_1 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoscale ! videoconvert ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor. udpsrc name=udpsrc_2 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoscale ! videoconvert ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor. udpsrc name=udpsrc_3 caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoscale ! videoconvert ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor.";
 
     // Create processing pipeline
     GstElement *processing_pipeline = gst_parse_launch(processing_pipeline_desc, nullptr);
@@ -251,6 +292,8 @@ int main()
 
     init_udpsrcs();
 
+    GstElement *capsfilter = gst_bin_get_by_name(GST_BIN(processing_pipeline), "capsfilter");
+
     GstElement *udpsrc_0 = gst_bin_get_by_name(GST_BIN(processing_pipeline), "udpsrc_0");
     g_object_set(udpsrc_0, "socket", udpsrc_gsocks[0], nullptr);
 
@@ -264,6 +307,8 @@ int main()
     g_object_set(udpsrc_3, "socket", udpsrc_gsocks[3], nullptr);
 
     gst_element_set_state(processing_pipeline, GST_STATE_PLAYING);
+
+    init_position_cells();
 
     init_position_points();
 
@@ -322,10 +367,14 @@ int main()
 
                     auto position = positions_available.back();
                     udpsrc_positions[udpsrc_sockaddr] = position;
+
+                    auto position_cell = position_cells[position];
+                    rows = std::max(rows, (uint8_t)(position_cell.first + 1));
+                    cols = std::max(cols, (uint8_t)(position_cell.second + 1));
+
                     auto position_point = position_points[position];
 
-                    g_object_set(pad, "xpos", position_point.first, "ypos", position_point.second, nullptr);
-                    g_object_set(pad, "alpha", 1.0, nullptr);
+                    g_object_set(pad, "alpha", 1.0, "xpos", position_point.first, "ypos", position_point.second, "width", 320, "height", 240, nullptr);
 
                     positions_available.pop_back();
                     udpsrc_sockaddrs_available.pop_back();
@@ -413,6 +462,8 @@ int main()
 
         if (has_addition_occurred || has_removal_occurred)
         {
+            update_grid_size();
+            crop_videobox(rows, cols, capsfilter);
             std::cout << "---- Active clients ----" << std::endl;
             for (const auto &client_sockaddr : client_sockaddrs)
             {
