@@ -76,6 +76,41 @@ void init_position_cells()
     position_cells.push_back({2, 2});
 }
 
+void init_position_cells(uint16_t cell_width, uint16_t cell_height, float target_aspect_ratio)
+{
+    uint8_t rows = 1;
+    uint8_t cols = 1;
+    position_cells.push_back({0, 0});
+    while (true)
+    {
+        if (rows * cols >= MAX_CLIENTS)
+            break;
+        // Calculation of deviation from target aspect ratio when adding a column and when adding a row, respectively
+        float horizontal_expansion_dev = std::abs((float)(cell_width * (cols + 1)) / (float)(cell_height * rows) - target_aspect_ratio);
+        float vertical_expansion_dev = std::abs((float)(cell_width * cols) / (float)(cell_height * (rows + 1)) - target_aspect_ratio);
+        // Adding a column yields a better aspect ratio
+        if (horizontal_expansion_dev < vertical_expansion_dev)
+        {
+            cols++;
+            const uint8_t j = cols - 1;
+            for (uint8_t i = 0; i < rows; i++)
+            {
+                position_cells.push_back({i, j});
+            }
+        }
+        // Adding a row yields a better aspect ratio
+        else
+        {
+            rows++;
+            const uint8_t i = rows - 1;
+            for (uint8_t j = 0; j < cols; j++)
+            {
+                position_cells.push_back({i, j});
+            }
+        }
+    }
+}
+
 // Sequence of {x, y} compositor cell top-left point x coordinate and y coordinate pair, in order of usage
 std::vector<std::pair<uint16_t, uint16_t>> position_points;
 
@@ -317,7 +352,7 @@ int main()
 
     gst_element_set_state(pipeline, GST_STATE_PLAYING);
 
-    init_position_cells();
+    init_position_cells(320, 240, 16.0 / 9.0);
 
     init_position_points();
 
