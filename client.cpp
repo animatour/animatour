@@ -21,7 +21,7 @@ int main(int argc, char *argv[])
         camera_to_udp_pipeline_desc_str = "videotestsrc pattern=ball ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320,height=240 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=" + host + " port=" + port;
 
     // Playback pipeline description
-    const char *udp_to_screen_pipeline_desc = "udpsrc name=udpsrc caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! decodebin ! videoconvert ! autovideosink";
+    const char *udp_to_screen_pipeline_desc = "udpsrc name=udpsrc caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoconvert ! autovideosink";
 
     // Capture pipeline description
     const char *camera_to_udp_pipeline_desc = camera_to_udp_pipeline_desc_str.c_str();
