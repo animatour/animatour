@@ -13,7 +13,7 @@ AnimaTrip is in the alpha phase. The client and the server applications are curr
 ## Architecture
 
 ```mermaid
-graph LR;
+graph BT;
     c1[Client 1]<--UDP-->s[Server];
     c2[Client 2]<--UDP-->s;
     cN[Client N]<--UDP-->s;
