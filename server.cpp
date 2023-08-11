@@ -267,56 +267,55 @@ int main()
     // Create pipeline
     GstElement *pipeline = gst_parse_launch(pipeline_desc_str.c_str(), nullptr);
 
-    // Socket that external clients send to
-    int socket_ext = socket(AF_INET, SOCK_DGRAM, 0);
-    if (socket_ext < 0)
+    // Socket for client to server and server to client (two-way) communication
+    int server_sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (server_sock < 0)
     {
-        std::cerr << "Failed to create socket_ext." << std::endl;
+        std::cerr << "Failed to create server_sock." << std::endl;
         return 1;
     }
 
-    sockaddr_in sockaddr_ext{};
-    sockaddr_ext.sin_family = AF_INET;
-    inet_pton(AF_INET, "0.0.0.0", &(sockaddr_ext.sin_addr));
-    sockaddr_ext.sin_port = htons(SERVER_PORT);
+    sockaddr_in server_sockaddr{};
+    server_sockaddr.sin_family = AF_INET;
+    inet_pton(AF_INET, "0.0.0.0", &(server_sockaddr.sin_addr));
+    server_sockaddr.sin_port = htons(SERVER_PORT);
 
-    if (bind(socket_ext, (struct sockaddr *)&sockaddr_ext, sizeof(sockaddr_ext)) < 0)
+    if (bind(server_sock, (struct sockaddr *)&server_sockaddr, sizeof(server_sockaddr)) < 0)
     {
-        std::cerr << "Failed to bind socket_ext." << std::endl;
+        std::cerr << "Failed to bind server_sock." << std::endl;
         return 1;
     }
 
-    // Socket that internal GStreamer sends to
-    int socket_int = socket(AF_INET, SOCK_DGRAM, 0);
-    if (socket_int < 0)
+    // Socket for GStreamer pipeline udpsink to server (one-way) communication
+    int udpsink_sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (udpsink_sock < 0)
     {
-        std::cerr << "Failed to create socket_int." << std::endl;
+        std::cerr << "Failed to create udpsink_sock." << std::endl;
         return 1;
     }
 
-    sockaddr_in sockaddr_int{};
-    sockaddr_int.sin_family = AF_INET;
-    inet_pton(AF_INET, "127.0.0.1", &(sockaddr_int.sin_addr));
-    sockaddr_int.sin_port = htons(0);
+    sockaddr_in udpsink_sockaddr{};
+    udpsink_sockaddr.sin_family = AF_INET;
+    inet_pton(AF_INET, "127.0.0.1", &(udpsink_sockaddr.sin_addr));
+    udpsink_sockaddr.sin_port = htons(0); // Assign any available port
 
-    if (bind(socket_int, (struct sockaddr *)&sockaddr_int, sizeof(sockaddr_int)) < 0)
+    if (bind(udpsink_sock, (struct sockaddr *)&udpsink_sockaddr, sizeof(udpsink_sockaddr)) < 0)
     {
-        std::cerr << "Failed to bind socket_int." << std::endl;
+        std::cerr << "Failed to bind udpsink_sock." << std::endl;
         return 1;
     }
 
-    socklen_t sockaddr_int_len = sizeof(sockaddr_int);
-    if (getsockname(socket_int, (struct sockaddr *)&sockaddr_int, &sockaddr_int_len) == -1)
+    socklen_t sockaddr_int_len = sizeof(udpsink_sockaddr);
+    if (getsockname(udpsink_sock, (struct sockaddr *)&udpsink_sockaddr, &sockaddr_int_len) == -1)
     {
-        std::cerr << "Failed to get socket name." << std::endl;
+        std::cerr << "Failed to get socket name for udpsink_sock." << std::endl;
         return 1;
     }
 
-    // Extract the port number from sockaddr_int
-    unsigned short port_assigned = ntohs(sockaddr_int.sin_port);
+    auto udpsink_port = ntohs(udpsink_sockaddr.sin_port);
 
     GstElement *udpsink = gst_bin_get_by_name(GST_BIN(pipeline), "udpsink");
-    g_object_set(udpsink, "port", port_assigned, nullptr);
+    g_object_set(udpsink, "port", udpsink_port, nullptr);
 
     struct pollfd fds[2];
 
@@ -327,9 +326,9 @@ int main()
     sockaddr_in client_sockaddr{};
     socklen_t client_sockaddr_len = sizeof(client_sockaddr);
 
-    fds[0].fd = socket_ext;
+    fds[0].fd = server_sock;
     fds[0].events = POLLIN;
-    fds[1].fd = socket_int;
+    fds[1].fd = udpsink_sock;
     fds[1].events = POLLIN;
 
     init_udpsrcs(pipeline);
@@ -370,11 +369,11 @@ int main()
         has_addition_occurred = false;
         has_removal_occurred = false;
 
-        // Check whether socket_ext has data
+        // Check whether server_sock has data
         if (fds[0].revents & POLLIN)
         {
             // Receive from client
-            bytes_read = recvfrom(socket_ext, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&client_sockaddr, &client_sockaddr_len);
+            bytes_read = recvfrom(server_sock, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&client_sockaddr, &client_sockaddr_len);
             if (bytes_read < 0)
             {
                 std::cerr << "Failed to receive from client." << std::endl;
@@ -418,8 +417,8 @@ int main()
             {
                 client_activity[client_sockaddr] = current_time;
 
-                // TODO Check whether it is OK to use socket_ext to send
-                if (sendto(socket_ext, buffer, bytes_read, 0, (struct sockaddr *)&(client_route->second), sizeof(client_route->second)) < 0)
+                // TODO Check whether it is OK to use server_sock to send
+                if (sendto(server_sock, buffer, bytes_read, 0, (struct sockaddr *)&(client_route->second), sizeof(client_route->second)) < 0)
                 {
                     std::cerr << "Failed to send to GStreamer." << std::endl;
                     continue;
@@ -427,12 +426,12 @@ int main()
             }
         }
 
-        // Check whether socket_int has data
+        // Check whether udpsink_sock has data
         if (fds[1].revents & POLLIN)
         {
             // Receive from GStreamer
             // TODO Check whether the same buffer and struct should be used for GStreamer
-            bytes_read = recvfrom(socket_int, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&client_sockaddr, &client_sockaddr_len);
+            bytes_read = recvfrom(udpsink_sock, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&client_sockaddr, &client_sockaddr_len);
             if (bytes_read < 0)
             {
                 std::cerr << "Failed to receive from GStreamer." << std::endl;
@@ -442,7 +441,7 @@ int main()
             // Send received data from GStreamer to all active clients
             for (const auto &client_sockaddr : client_sockaddrs)
             {
-                if (sendto(socket_ext, buffer, bytes_read, 0, (struct sockaddr *)&client_sockaddr, sizeof(client_sockaddr)) < 0)
+                if (sendto(server_sock, buffer, bytes_read, 0, (struct sockaddr *)&client_sockaddr, sizeof(client_sockaddr)) < 0)
                 {
                     std::cerr << "Failed to send to client." << std::endl;
                     continue;
@@ -505,8 +504,8 @@ int main()
         }
     }
 
-    close(socket_ext);
-    close(socket_int);
+    close(server_sock);
+    close(udpsink_sock);
 
     return 0;
 }
