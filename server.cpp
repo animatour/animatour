@@ -62,20 +62,6 @@ void init_compositor_pads(GstElement *compositor)
 // Sequence of {i, j} compositor cell row index and column index pair, in order of usage
 std::vector<std::pair<uint8_t, uint8_t>> position_cells;
 
-// FIXME Create automatically based on MAX_CLIENTS and golden ratio
-void init_position_cells()
-{
-    position_cells.push_back({0, 0});
-    position_cells.push_back({0, 1});
-    position_cells.push_back({1, 0});
-    position_cells.push_back({1, 1});
-    position_cells.push_back({0, 2});
-    position_cells.push_back({1, 2});
-    position_cells.push_back({2, 0});
-    position_cells.push_back({2, 1});
-    position_cells.push_back({2, 2});
-}
-
 void init_position_cells(uint16_t cell_width, uint16_t cell_height, float target_aspect_ratio)
 {
     uint8_t rows = 1;
