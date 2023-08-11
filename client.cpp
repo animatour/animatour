@@ -11,7 +11,7 @@ int main(int argc, char *argv[])
 
     std::string device = (argc < 2) ? "test" : argv[1];
     std::string host = (argc < 3) ? "127.0.0.1" : argv[2];
-    std::string port = (argc < 4) ? "62000" : argv[3];
+    std::string port = (argc < 4) ? "27884" : argv[3];
 
     std::string camera_to_udp_pipeline_desc_str;
 

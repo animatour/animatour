@@ -12,7 +12,7 @@
 
 // TODO Check whether this should be higher
 const int BUFFER_SIZE = 4096;
-const int SERVER_PORT = 62000;
+const int SERVER_PORT = 27884;
 const int MAX_CLIENTS = 9;
 
 struct sockaddr_in_cmp
