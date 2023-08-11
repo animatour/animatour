@@ -17,10 +17,10 @@ graph LR
     subgraph server[Server]
         udp-receiver[UDP Receiver]-->udp-router[UDP Router]
         subgraph gst-composite[GStreamer Composite Pipeline]
-            udpsrc-1[udpsrc 1]-->udpsrc-1-processing[rtph264depay/avdec_h264/videoscale/videoconvert]-->compositor
-            udpsrc-2[udpsrc 2]-->udpsrc-2-processing[rtph264depay/avdec_h264/videoscale/videoconvert]-->compositor
-            udpsrc-N[udpsrc N]-->udpsrc-N-processing[rtph264depay/avdec_h264/videoscale/videoconvert]-->compositor
-            compositor-->compositor-processing[videobox/x264enc/rtph264pay]-->server-udpsink[udpsink]
+            udpsrc-1[udpsrc 1]-->udpsrc-1-processing[depay/dec/scale/convert]-->compositor
+            udpsrc-2[udpsrc 2]-->udpsrc-2-processing[depay/dec/scale/convert]-->compositor
+            udpsrc-N[udpsrc N]-->udpsrc-N-processing[depay/dec/scale/convert]-->compositor
+            compositor-->compositor-processing[box/enc/pay]-->server-udpsink[udpsink]
         end
         udp-router-->udpsrc-1
         udp-router-->udpsrc-2
@@ -30,10 +30,10 @@ graph LR
 
     subgraph client-i[Client i]
         subgraph gst-capture[GStreamer Capture Pipeline]
-            v4l2src-->capture-processing[videoconvert/videoscale/x264enc/rtph264pay]-->client-udpsink[udpsink]
+            v4l2src-->capture-processing[convert/scale/enc/pay]-->client-udpsink[udpsink]
         end
         subgraph gst-playback[GStreamer Playback Pipeline]
-            client-udpsrc[udpsrc]-->playback-processing[rtph264depay/avdec_h264/videoconvert]
+            client-udpsrc[udpsrc]-->playback-processing[depay/dec/convert]
         end
         webcam[Webcam]-->v4l2src
         playback-processing-->display[Display]
