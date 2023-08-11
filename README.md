@@ -13,7 +13,7 @@ AnimaTrip is in the alpha phase. The client and the server applications are curr
 ## Architecture
 
 ```mermaid
-graph LR
+graph TD
     subgraph server[Server]
         udp-receiver[UDP Receiver]-->udp-router[UDP Router]
         subgraph gst-composite[GStreamer Composite Pipeline]
