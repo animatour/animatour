@@ -262,13 +262,16 @@ int main(int argc, char *argv[])
 
     int opt;
 
-    while ((opt = getopt(argc, argv, "p:")) != -1)
+    while ((opt = getopt(argc, argv, "p:h")) != -1)
     {
         switch (opt)
         {
         case 'p':
             server_port = atoi(optarg);
             break;
+        case 'h':
+            fprintf(stderr, "Usage: %s [-p port]\n", argv[0]);
+            exit(EXIT_SUCCESS);
         default:
             fprintf(stderr, "Usage: %s [-p port]\n", argv[0]);
             exit(EXIT_FAILURE);

@@ -51,24 +51,48 @@ graph TD
 
 ## Usage
 
-### Run server
+### AnimaTrip Server
+
+#### Help
+
+```bash
+./animatrip-server -h
+# Usage: ./animatrip-server [-p port]
+```
+
+#### Run Server
 
 ```bash
 ./animatrip-server
 ```
 
-### Run test client that connects to local server
+### AnimaTrip Client
+
+#### Help
 
 ```bash
-./animatrip-client -t
+./animatrip-client -h
+# Usage: ./animatrip-client [-t] [-d device] [-p serverport] [serverhost]
 ```
 
-You may run multiple test clients on a single machine.
+#### Run Webcam Client to Local Server
 
-### Run webcam client that connects to local server
+```bash
+./animatrip-client
+```
+
+or
 
 ```bash
 ./animatrip-client -d /dev/video0
 ```
 
 You may run multiple webcam clients on a single machine, but only one webcam client per webcam.
+
+#### Run Test Client to Local Server
+
+```bash
+./animatrip-client -t
+```
+
+You may run multiple test clients on a single machine.

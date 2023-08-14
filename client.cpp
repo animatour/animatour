@@ -9,12 +9,12 @@ int main(int argc, char *argv[])
     // Whether a videotestsrc instead of a webcam device will be used
     bool is_test = false;
     std::string device = "/dev/video0";
-    std::string host = "127.0.0.1";
-    std::string port = "27884";
+    std::string server_host = "127.0.0.1";
+    std::string server_port = "27884";
 
     int opt;
 
-    while ((opt = getopt(argc, argv, "td:h:p:")) != -1)
+    while ((opt = getopt(argc, argv, "td:p:h")) != -1)
     {
         switch (opt)
         {
@@ -24,16 +24,21 @@ int main(int argc, char *argv[])
         case 'd':
             device = optarg;
             break;
-        case 'h':
-            host = optarg;
-            break;
         case 'p':
-            port = optarg;
+            server_port = optarg;
             break;
+        case 'h':
+            fprintf(stderr, "Usage: %s [-t] [-d device] [-p serverport] [serverhost]\n", argv[0]);
+            exit(EXIT_SUCCESS);
         default:
-            fprintf(stderr, "Usage: %s [-t] [-d device] [-h host] [-p port]\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-t] [-d device] [-p serverport] [serverhost]\n", argv[0]);
             exit(EXIT_FAILURE);
         }
+    }
+
+    if (optind < argc)
+    {
+        server_host = argv[optind];
     }
 
     // Initialize GStreamer
@@ -45,9 +50,9 @@ int main(int argc, char *argv[])
     std::string capture_pipeline_desc_str;
 
     if (!is_test)
-        capture_pipeline_desc_str = "v4l2src device=" + device + " ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320,height=240 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=" + host + " port=" + port;
+        capture_pipeline_desc_str = "v4l2src device=" + device + " ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320,height=240 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=" + server_host + " port=" + server_port;
     else
-        capture_pipeline_desc_str = "videotestsrc pattern=ball ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320,height=240 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=" + host + " port=" + port;
+        capture_pipeline_desc_str = "videotestsrc pattern=ball ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320,height=240 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=" + server_host + " port=" + server_port;
 
     // Capture pipeline description
     const char *capture_pipeline_desc = capture_pipeline_desc_str.c_str();
