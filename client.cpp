@@ -6,6 +6,7 @@
 
 int main(int argc, char *argv[])
 {
+    // Whether a videotestsrc instead of a webcam device will be used
     bool is_test = false;
     std::string device = "/dev/video0";
     std::string host = "127.0.0.1";
@@ -38,50 +39,50 @@ int main(int argc, char *argv[])
     // Initialize GStreamer
     gst_init(nullptr, nullptr);
 
-    std::string camera_to_udp_pipeline_desc_str;
+    // Playback pipeline description
+    const char *playback_pipeline_desc = "udpsrc name=udpsrc caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoconvert ! autovideosink";
+
+    std::string capture_pipeline_desc_str;
 
     if (!is_test)
-        camera_to_udp_pipeline_desc_str = "v4l2src device=" + device + " ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320,height=240 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=" + host + " port=" + port;
+        capture_pipeline_desc_str = "v4l2src device=" + device + " ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320,height=240 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=" + host + " port=" + port;
     else
-        camera_to_udp_pipeline_desc_str = "videotestsrc pattern=ball ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320,height=240 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=" + host + " port=" + port;
-
-    // Playback pipeline description
-    const char *udp_to_screen_pipeline_desc = "udpsrc name=udpsrc caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoconvert ! autovideosink";
+        capture_pipeline_desc_str = "videotestsrc pattern=ball ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320,height=240 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=" + host + " port=" + port;
 
     // Capture pipeline description
-    const char *camera_to_udp_pipeline_desc = camera_to_udp_pipeline_desc_str.c_str();
+    const char *capture_pipeline_desc = capture_pipeline_desc_str.c_str();
 
-    // Server UDP communication socket
-    int server_comm_fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (server_comm_fd < 0)
+    // Socket for UDP communication with server
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock == -1)
     {
-        std::cerr << "Failed to create socket: server_comm_fd" << std::endl;
+        std::cerr << "Failed to create sock." << std::endl;
         return 1;
     }
 
-    sockaddr_in server_comm_sockaddr{};
-    server_comm_sockaddr.sin_family = AF_INET;
-    inet_pton(AF_INET, "0.0.0.0", &(server_comm_sockaddr.sin_addr));
-    server_comm_sockaddr.sin_port = htons(0); // Assign any available port
-    if (bind(server_comm_fd, (struct sockaddr *)&server_comm_sockaddr, sizeof(server_comm_sockaddr)) < 0)
+    sockaddr_in client_sockaddr{};
+    client_sockaddr.sin_family = AF_INET;
+    inet_pton(AF_INET, "0.0.0.0", &(client_sockaddr.sin_addr));
+    client_sockaddr.sin_port = htons(0); // Assign any available port
+    if (bind(sock, (struct sockaddr *)&client_sockaddr, sizeof(client_sockaddr)) < 0)
     {
-        std::cerr << "Failed to bind socket: server_comm_fd" << std::endl;
-        close(server_comm_fd);
+        std::cerr << "Failed to bind sock." << std::endl;
+        close(sock);
         return 1;
     }
 
     // Create GSocket object for use with udpsrc and udpsink
-    GSocket *gsock = g_socket_new_from_fd(server_comm_fd, nullptr);
+    GSocket *gsock = g_socket_new_from_fd(sock, nullptr);
 
     // Create playback pipeline
-    GstElement *playback_pipeline = gst_parse_launch(udp_to_screen_pipeline_desc, nullptr);
+    GstElement *playback_pipeline = gst_parse_launch(playback_pipeline_desc, nullptr);
 
     // Set up the UDP source element of the playback pipeline
     GstElement *udpsrc = gst_bin_get_by_name(GST_BIN(playback_pipeline), "udpsrc");
     g_object_set(udpsrc, "socket", gsock, nullptr);
 
     // Create capture pipeline
-    GstElement *capture_pipeline = gst_parse_launch(camera_to_udp_pipeline_desc, nullptr);
+    GstElement *capture_pipeline = gst_parse_launch(capture_pipeline_desc, nullptr);
 
     // Set up the UDP sink element of the capture pipeline
     GstElement *udpsink = gst_bin_get_by_name(GST_BIN(capture_pipeline), "udpsink");
