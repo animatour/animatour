@@ -8,7 +8,7 @@ AnimaTrip is based on UDP communication, the client-server model, C++17, and GSt
 
 AnimaTrip is heavily influenced by [JackTrip](https://github.com/jacktrip/jacktrip).
 
-AnimaTrip is in the alpha phase. The client and the server applications are currently separate and run on Linux only.
+AnimaTrip is in the alpha phase. The AnimaTrip client and server applications are separate and currently Linux-only.
 
 ## Architecture
 
@@ -54,13 +54,13 @@ graph TD
 ### Run server
 
 ```bash
-./server
+./animatrip-server
 ```
 
 ### Run test client that connects to local server
 
 ```bash
-./client test
+./animatrip-client -t
 ```
 
 You may run multiple test clients on a single machine.
@@ -68,7 +68,7 @@ You may run multiple test clients on a single machine.
 ### Run webcam client that connects to local server
 
 ```bash
-./client /dev/video0
+./animatrip-client -d /dev/video0
 ```
 
 You may run multiple webcam clients on a single machine, but only one webcam client per webcam.
