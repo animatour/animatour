@@ -12,7 +12,6 @@
 
 // TODO Check whether this should be higher
 const int BUFFER_SIZE = 4096;
-const int SERVER_PORT = 27884;
 const int MAX_CLIENTS = 9;
 
 struct sockaddr_in_cmp
@@ -257,8 +256,25 @@ std::string make_pipeline_desc_str()
     return result;
 }
 
-int main()
+int main(int argc, char *argv[])
 {
+    int server_port = 27884;
+
+    int opt;
+
+    while ((opt = getopt(argc, argv, "p:")) != -1)
+    {
+        switch (opt)
+        {
+        case 'p':
+            server_port = atoi(optarg);
+            break;
+        default:
+            fprintf(stderr, "Usage: %s [-p port]\n", argv[0]);
+            exit(EXIT_FAILURE);
+        }
+    }
+
     // Initialize GStreamer
     gst_init(nullptr, nullptr);
 
@@ -278,7 +294,7 @@ int main()
     sockaddr_in server_sockaddr{};
     server_sockaddr.sin_family = AF_INET;
     inet_pton(AF_INET, "0.0.0.0", &(server_sockaddr.sin_addr));
-    server_sockaddr.sin_port = htons(SERVER_PORT);
+    server_sockaddr.sin_port = htons(server_port);
 
     if (bind(server_sock, (struct sockaddr *)&server_sockaddr, sizeof(server_sockaddr)) < 0)
     {
