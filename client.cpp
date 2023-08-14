@@ -6,16 +6,41 @@
 
 int main(int argc, char *argv[])
 {
+    bool is_test = false;
+    std::string device = "/dev/video0";
+    std::string host = "127.0.0.1";
+    std::string port = "27884";
+
+    int opt;
+
+    while ((opt = getopt(argc, argv, "td:h:p:")) != -1)
+    {
+        switch (opt)
+        {
+        case 't':
+            is_test = true;
+            break;
+        case 'd':
+            device = optarg;
+            break;
+        case 'h':
+            host = optarg;
+            break;
+        case 'p':
+            port = optarg;
+            break;
+        default:
+            fprintf(stderr, "Usage: %s [-t] [-d device] [-h host] [-p port]\n", argv[0]);
+            exit(EXIT_FAILURE);
+        }
+    }
+
     // Initialize GStreamer
     gst_init(nullptr, nullptr);
 
-    std::string device = (argc < 2) ? "test" : argv[1];
-    std::string host = (argc < 3) ? "127.0.0.1" : argv[2];
-    std::string port = (argc < 4) ? "27884" : argv[3];
-
     std::string camera_to_udp_pipeline_desc_str;
 
-    if (device != "test")
+    if (!is_test)
         camera_to_udp_pipeline_desc_str = "v4l2src device=" + device + " ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320,height=240 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=" + host + " port=" + port;
     else
         camera_to_udp_pipeline_desc_str = "videotestsrc pattern=ball ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320,height=240 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=" + host + " port=" + port;
