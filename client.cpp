@@ -4,6 +4,45 @@
 #include <iostream>
 #include <thread>
 
+GstElement *make_playback_pipeline(GSocket *socket)
+{
+    GstElement *pipeline = gst_pipeline_new("playback-pipeline");
+
+    GstElement *udpsrc = gst_element_factory_make("udpsrc", "udpsrc");
+    GstElement *rtph264depay = gst_element_factory_make("rtph264depay", "rtph264depay");
+    GstElement *avdec_h264 = gst_element_factory_make("avdec_h264", "avdec_h264");
+    GstElement *videoconvert = gst_element_factory_make("videoconvert", "videoconvert");
+    GstElement *autovideosink = gst_element_factory_make("autovideosink", "autovideosink");
+
+    if (!pipeline || !udpsrc || !rtph264depay || !avdec_h264 || !videoconvert || !autovideosink)
+    {
+        g_printerr("Failed to create playback pipeline elements.\n");
+        return nullptr;
+    }
+
+    GstCaps *caps = gst_caps_new_simple("application/x-rtp",
+                                        "media", G_TYPE_STRING, "video",
+                                        "clock-rate", G_TYPE_INT, 90000,
+                                        "encoding-name", G_TYPE_STRING, "H264",
+                                        "payload", G_TYPE_INT, 96,
+                                        nullptr);
+
+    g_object_set(udpsrc, "caps", caps, "socket", socket, nullptr);
+
+    gst_caps_unref(caps);
+
+    gst_bin_add_many(GST_BIN(pipeline), udpsrc, rtph264depay, avdec_h264, videoconvert, autovideosink, nullptr);
+
+    if (!gst_element_link_many(udpsrc, rtph264depay, avdec_h264, videoconvert, autovideosink, nullptr))
+    {
+        g_printerr("Failed to link playback pipeline elements.\n");
+        gst_object_unref(pipeline);
+        return nullptr;
+    }
+
+    return pipeline;
+}
+
 int main(int argc, char *argv[])
 {
     // Whether a videotestsrc instead of a webcam device will be used
@@ -44,9 +83,6 @@ int main(int argc, char *argv[])
     // Initialize GStreamer
     gst_init(nullptr, nullptr);
 
-    // Playback pipeline description
-    const char *playback_pipeline_desc = "udpsrc name=udpsrc caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoconvert ! autovideosink";
-
     std::string capture_pipeline_desc_str;
 
     if (!is_test)
@@ -80,11 +116,7 @@ int main(int argc, char *argv[])
     GSocket *gsock = g_socket_new_from_fd(sock, nullptr);
 
     // Create playback pipeline
-    GstElement *playback_pipeline = gst_parse_launch(playback_pipeline_desc, nullptr);
-
-    // Set up the UDP source element of the playback pipeline
-    GstElement *udpsrc = gst_bin_get_by_name(GST_BIN(playback_pipeline), "udpsrc");
-    g_object_set(udpsrc, "socket", gsock, nullptr);
+    GstElement *playback_pipeline = make_playback_pipeline(gsock);
 
     // Create capture pipeline
     GstElement *capture_pipeline = gst_parse_launch(capture_pipeline_desc, nullptr);
