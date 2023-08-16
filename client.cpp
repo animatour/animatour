@@ -43,6 +43,11 @@ GstElement *make_playback_pipeline(GSocket *socket)
     return pipeline;
 }
 
+void print_usage(char *program_name)
+{
+    fprintf(stderr, "Usage: %s [-t] [-d device] [-p serverport] [serverhost]\n", program_name);
+}
+
 int main(int argc, char *argv[])
 {
     // Whether a videotestsrc instead of a webcam device will be used
@@ -67,10 +72,10 @@ int main(int argc, char *argv[])
             server_port = optarg;
             break;
         case 'h':
-            fprintf(stderr, "Usage: %s [-t] [-d device] [-p serverport] [serverhost]\n", argv[0]);
+            print_usage(argv[0]);
             exit(EXIT_SUCCESS);
         default:
-            fprintf(stderr, "Usage: %s [-t] [-d device] [-p serverport] [serverhost]\n", argv[0]);
+            print_usage(argv[0]);
             exit(EXIT_FAILURE);
         }
     }
