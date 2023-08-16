@@ -256,6 +256,105 @@ std::string make_pipeline_desc_str()
     return result;
 }
 
+/**
+ * Composite pipeline description: compositor name=compositor background=black zero-size-is-unscaled=false ! videobox autocrop=true ! capsfilter name=capsfilter caps="video/x-raw, width=320, height=240" ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=127.0.0.1
+ *
+ * udpsrc name=udpsrc_i caps="application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96" ! rtph264depay ! avdec_h264 ! videoscale ! videoconvert ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor.
+ */
+GstElement *composite_pipeline_make(int udpsink_port)
+{
+    GstElement *pipeline = gst_pipeline_new("composite-pipeline");
+
+    GstElement *compositor = gst_element_factory_make("compositor", "compositor");
+    GstElement *videobox = gst_element_factory_make("videobox", "videobox");
+    GstElement *capsfilter = gst_element_factory_make("capsfilter", "capsfilter");
+    GstElement *x264enc = gst_element_factory_make("x264enc", "x264enc");
+    GstElement *rtph264pay = gst_element_factory_make("rtph264pay", "rtph264pay");
+    GstElement *udpsink = gst_element_factory_make("udpsink", "udpsink");
+
+    if (!pipeline || !compositor || !videobox || !capsfilter || !x264enc || !rtph264pay || !udpsink)
+    {
+        g_printerr("Failed to create composite pipeline elements.\n");
+        return nullptr;
+    }
+
+    g_object_set(compositor, "background", "black", "zero-size-is-unscaled", false, nullptr);
+    g_object_set(videobox, "autocrop", true, nullptr);
+
+    GstCaps *caps = gst_caps_new_simple("video/x-raw",
+                                        "width", G_TYPE_INT, 320,
+                                        "height", G_TYPE_INT, 240,
+                                        nullptr);
+    g_object_set(capsfilter, "caps", caps, nullptr);
+    gst_caps_unref(caps);
+
+    g_object_set(x264enc, "tune", "zerolatency", "bitrate", 500, "speed-preset", "superfast", nullptr);
+    g_object_set(udpsink, "host", "127.0.0.1", "port", udpsink_port, nullptr);
+
+    gst_bin_add_many(GST_BIN(pipeline), compositor, videobox, capsfilter, x264enc, rtph264pay, udpsink, nullptr);
+
+    if (!gst_element_link_many(compositor, videobox, capsfilter, x264enc, rtph264pay, udpsink, nullptr))
+    {
+        g_printerr("Failed to link composite pipeline elements.\n");
+        gst_object_unref(pipeline);
+        return nullptr;
+    }
+
+    for (int i = 0; i < MAX_CLIENTS; i++)
+    {
+        GstElement *udpsrc = gst_element_factory_make("udpsrc", "udpsrc_" + i);
+        GstElement *rtph264depay = gst_element_factory_make("rtph264depay", "rtph264depay");
+        GstElement *avdec_h264 = gst_element_factory_make("avdec_h264", "avdec_h264");
+        GstElement *videoscale = gst_element_factory_make("videoscale", "videoscale");
+        GstElement *videoconvert = gst_element_factory_make("videoconvert", "videoconvert");
+        GstElement *capsfilter = gst_element_factory_make("capsfilter", "capsfilter");
+
+        GstCaps *caps = gst_caps_new_simple("application/x-rtp",
+                                            "media", G_TYPE_STRING, "video",
+                                            "clock-rate", G_TYPE_INT, 90000,
+                                            "encoding-name", G_TYPE_STRING, "H264",
+                                            "payload", G_TYPE_INT, 96,
+                                            nullptr);
+        g_object_set(udpsrc, "caps", caps, nullptr);
+        gst_caps_unref(caps);
+
+        gst_bin_add_many(GST_BIN(pipeline), udpsrc, rtph264depay, avdec_h264, videoscale, videoconvert, capsfilter, nullptr);
+
+        gst_element_link_many(udpsrc, rtph264depay, avdec_h264, videoscale, videoconvert, capsfilter, nullptr);
+
+        GstPad *capsfilter_src_pad = gst_element_get_static_pad(capsfilter, "src");
+        if (!capsfilter_src_pad)
+        {
+            g_printerr("Failed to get capsfilter src pad.\n");
+            gst_object_unref(pipeline);
+            return nullptr;
+        }
+
+        GstPad *compositor_sink_pad = gst_element_request_pad_simple(compositor, "sink_%u");
+        if (!compositor_sink_pad)
+        {
+            g_printerr("Failed to get compositor request sink pad.\n");
+            gst_object_unref(capsfilter_src_pad);
+            gst_object_unref(pipeline);
+            return nullptr;
+        }
+
+        if (gst_pad_link(capsfilter_src_pad, compositor_sink_pad) != GST_PAD_LINK_OK)
+        {
+            g_printerr("Failed to link capsfilter and compositor pads.\n");
+            gst_object_unref(capsfilter_src_pad);
+            gst_object_unref(compositor_sink_pad);
+            gst_object_unref(pipeline);
+            return nullptr;
+        }
+
+        gst_object_unref(capsfilter_src_pad);
+        gst_object_unref(compositor_sink_pad);
+    }
+
+    return pipeline;
+}
+
 int main(int argc, char *argv[])
 {
     int server_port = 27884;
