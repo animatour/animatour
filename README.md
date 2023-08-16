@@ -8,7 +8,7 @@ AnimaTrip is based on UDP communication, the client-server model, C++17, and GSt
 
 AnimaTrip is heavily influenced by [JackTrip](https://github.com/jacktrip/jacktrip).
 
-AnimaTrip is in the alpha phase. The AnimaTrip client and server applications are separate and currently Linux-only.
+AnimaTrip is in the alpha phase. The AnimaTrip client and server are currently separate and Linux-only applications.
 
 ## Architecture
 
