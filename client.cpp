@@ -4,7 +4,10 @@
 #include <iostream>
 #include <thread>
 
-GstElement *make_playback_pipeline(GSocket *socket)
+/**
+ * Playback pipeline description: udpsrc name=udpsrc caps="application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96" ! rtph264depay ! avdec_h264 ! videoconvert ! autovideosink
+ */
+GstElement *playback_pipeline_make(GSocket *socket)
 {
     GstElement *pipeline = gst_pipeline_new("playback-pipeline");
 
@@ -43,6 +46,74 @@ GstElement *make_playback_pipeline(GSocket *socket)
     return pipeline;
 }
 
+/**
+ * Capture pipeline description: v4l2src device=/dev/video0 ! videoconvert ! videoscale ! video/x-raw, framerate=30/1, width=320, height=240 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=127.0.0.1 port=27884
+ * Test capture pipeline description: videotestsrc pattern=ball ! videoconvert ! videoscale ! video/x-raw, framerate=30/1, width=320, height=240 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=127.0.0.1 port=27884
+ */
+GstElement *capture_pipeline_make(bool is_test, std::string device, std::string server_host, int server_port, GSocket *socket)
+{
+    GstElement *pipeline = gst_pipeline_new("capture-pipeline");
+
+    GstElement *src;
+    if (is_test)
+    {
+        src = gst_element_factory_make("videotestsrc", "videotestsrc");
+    }
+    else
+    {
+        src = gst_element_factory_make("v4l2src", "v4l2src");
+    }
+    GstElement *videoconvert1 = gst_element_factory_make("videoconvert", "videoconvert1");
+    GstElement *videoscale1 = gst_element_factory_make("videoscale", "videoscale1");
+    GstElement *capsfilter = gst_element_factory_make("capsfilter", "capsfilter");
+    GstElement *videoscale2 = gst_element_factory_make("videoscale", "videoscale2");
+    GstElement *videoconvert2 = gst_element_factory_make("videoconvert", "videoconvert2");
+    GstElement *x264enc = gst_element_factory_make("x264enc", "x264enc");
+    GstElement *rtph264pay = gst_element_factory_make("rtph264pay", "rtph264pay");
+    GstElement *udpsink = gst_element_factory_make("udpsink", "udpsink");
+
+    if (!pipeline || !src || !videoconvert1 || !videoscale1 || !capsfilter || !videoscale2 || !videoconvert2 || !x264enc || !rtph264pay || !udpsink)
+    {
+        g_printerr("Failed to create capture pipeline elements.\n");
+        return nullptr;
+    }
+
+    if (is_test)
+    {
+        // pattern: ball (18) – Moving ball
+        g_object_set(src, "pattern", 18, nullptr);
+    }
+    else
+    {
+        g_object_set(src, "device", device.c_str(), nullptr);
+    }
+
+    // TODO Allow higher framerate, when supported by the webcam
+    GstCaps *caps = gst_caps_new_simple("video/x-raw",
+                                        "framerate", GST_TYPE_FRACTION, 30, 1,
+                                        "width", G_TYPE_INT, 320,
+                                        "height", G_TYPE_INT, 240,
+                                        nullptr);
+    g_object_set(capsfilter, "caps", caps, nullptr);
+    gst_caps_unref(caps);
+
+    // tune: zerolatency (0x00000004) – Zero latency
+    // bitrate: 500
+    // speed-preset: ultrafast (1) – ultrafast / superfast (2) – superfast
+    g_object_set(x264enc, "tune", 4, "bitrate", 500, "speed-preset", 2, nullptr);
+    g_object_set(udpsink, "host", server_host.c_str(), "port", server_port, "socket", socket, nullptr);
+
+    gst_bin_add_many(GST_BIN(pipeline), src, videoconvert1, videoscale1, capsfilter, videoscale2, videoconvert2, x264enc, rtph264pay, udpsink, nullptr);
+    if (!gst_element_link_many(src, videoconvert1, videoscale1, capsfilter, videoscale2, videoconvert2, x264enc, rtph264pay, udpsink, nullptr))
+    {
+        g_printerr("Failed to link capture pipeline elements.\n");
+        gst_object_unref(pipeline);
+        return nullptr;
+    }
+
+    return pipeline;
+}
+
 void print_usage(char *program_name)
 {
     fprintf(stderr, "Usage: %s [-t] [-d device] [-p serverport] [serverhost]\n", program_name);
@@ -54,7 +125,7 @@ int main(int argc, char *argv[])
     bool is_test = false;
     std::string device = "/dev/video0";
     std::string server_host = "127.0.0.1";
-    std::string server_port = "27884";
+    int server_port = 27884;
 
     int opt;
 
@@ -69,7 +140,7 @@ int main(int argc, char *argv[])
             device = optarg;
             break;
         case 'p':
-            server_port = optarg;
+            server_port = atoi(optarg);
             break;
         case 'h':
             print_usage(argv[0]);
@@ -87,16 +158,6 @@ int main(int argc, char *argv[])
 
     // Initialize GStreamer
     gst_init(nullptr, nullptr);
-
-    std::string capture_pipeline_desc_str;
-
-    if (!is_test)
-        capture_pipeline_desc_str = "v4l2src device=" + device + " ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320,height=240 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=" + server_host + " port=" + server_port;
-    else
-        capture_pipeline_desc_str = "videotestsrc pattern=ball ! videoconvert ! videoscale ! video/x-raw,framerate=30/1,width=320,height=240 ! videoscale ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=" + server_host + " port=" + server_port;
-
-    // Capture pipeline description
-    const char *capture_pipeline_desc = capture_pipeline_desc_str.c_str();
 
     // Socket for UDP communication with server
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
@@ -121,14 +182,10 @@ int main(int argc, char *argv[])
     GSocket *gsock = g_socket_new_from_fd(sock, nullptr);
 
     // Create playback pipeline
-    GstElement *playback_pipeline = make_playback_pipeline(gsock);
+    GstElement *playback_pipeline = playback_pipeline_make(gsock);
 
     // Create capture pipeline
-    GstElement *capture_pipeline = gst_parse_launch(capture_pipeline_desc, nullptr);
-
-    // Set up the UDP sink element of the capture pipeline
-    GstElement *udpsink = gst_bin_get_by_name(GST_BIN(capture_pipeline), "udpsink");
-    g_object_set(udpsink, "socket", gsock, nullptr);
+    GstElement *capture_pipeline = capture_pipeline_make(is_test, device, server_host, server_port, gsock);
 
     // Start playing the pipelines
     gst_element_set_state(playback_pipeline, GST_STATE_PLAYING);
@@ -138,15 +195,12 @@ int main(int argc, char *argv[])
     GMainLoop *loop = g_main_loop_new(nullptr, FALSE);
     g_main_loop_run(loop);
 
-    // Free resources
-    // TODO Verify cleanup
+    // Clean up
     gst_element_set_state(capture_pipeline, GST_STATE_NULL);
     gst_element_set_state(playback_pipeline, GST_STATE_NULL);
     gst_object_unref(capture_pipeline);
     gst_object_unref(playback_pipeline);
     g_main_loop_unref(loop);
-
-    // Free GSocket object
     g_object_unref(gsock);
 
     return 0;
