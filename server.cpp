@@ -355,6 +355,11 @@ GstElement *composite_pipeline_make(int udpsink_port)
     return pipeline;
 }
 
+void print_usage(char *program_name)
+{
+    fprintf(stderr, "Usage: %s [-p port]\n", program_name);
+}
+
 int main(int argc, char *argv[])
 {
     int server_port = 27884;
@@ -369,10 +374,10 @@ int main(int argc, char *argv[])
             server_port = atoi(optarg);
             break;
         case 'h':
-            fprintf(stderr, "Usage: %s [-p port]\n", argv[0]);
+            print_usage(argv[0]);
             exit(EXIT_SUCCESS);
         default:
-            fprintf(stderr, "Usage: %s [-p port]\n", argv[0]);
+            print_usage(argv[0]);
             exit(EXIT_FAILURE);
         }
     }
