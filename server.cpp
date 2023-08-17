@@ -192,7 +192,7 @@ void crop_videobox(uint8_t rows, uint8_t cols, GstElement *capsfilter)
 /**
  * Initializes udpsrc elements.
  */
-void init_udpsrcs(GstElement *pipeline)
+void init_udpsrcs(GstElement *pipeline, std::string client_name_prefix)
 {
     for (int i = 0; i < MAX_CLIENTS; i++)
     {
@@ -229,7 +229,7 @@ void init_udpsrcs(GstElement *pipeline)
             return;
         }
 
-        std::string udpsrc_name = std::string("udpsrc_") + std::to_string(i);
+        std::string udpsrc_name = client_name_prefix + std::to_string(i) + "_udpsrc";
         GstElement *udpsrc = gst_bin_get_by_name(GST_BIN(pipeline), udpsrc_name.c_str());
         g_object_set(udpsrc, "socket", udpsrc_gsock, nullptr);
 
@@ -241,25 +241,73 @@ void init_udpsrcs(GstElement *pipeline)
 }
 
 /**
- * Make pipeline description string.
+ * Composite pipeline client sub-pipeline description: udpsrc name={client_name}_udpsrc caps="application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96" ! rtph264depay ! avdec_h264 ! videoscale ! videoconvert ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor.
  */
-std::string make_pipeline_desc_str()
+void composite_pipeline_client_add(GstElement *pipeline, std::string client_name)
 {
-    std::string compositor_to_udpsink("compositor name=compositor background=black zero-size-is-unscaled=false ! videobox autocrop=true ! capsfilter name=capsfilter caps=\"video/x-raw, width=320, height=240\" ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=127.0.0.1");
-    std::string udpsrc_to_compositor_part_1(" udpsrc name=udpsrc_");
-    std::string udpsrc_to_compositor_part_2(" caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! avdec_h264 ! videoscale ! videoconvert ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor.");
-    std::string result = compositor_to_udpsink;
-    for (int i = 0; i < MAX_CLIENTS; i++)
+    // FIXME Do not rely on the name, rather provide the compositor element as an argument
+    GstElement *compositor = gst_bin_get_by_name(GST_BIN(pipeline), "compositor");
+
+    GstElement *udpsrc = gst_element_factory_make("udpsrc", (client_name + "_udpsrc").c_str());
+    GstElement *rtph264depay = gst_element_factory_make("rtph264depay", (client_name + "_rtph264depay").c_str());
+    GstElement *avdec_h264 = gst_element_factory_make("avdec_h264", (client_name + "_avdec_h264").c_str());
+    GstElement *videoscale = gst_element_factory_make("videoscale", (client_name + "_videoscale").c_str());
+    GstElement *videoconvert = gst_element_factory_make("videoconvert", (client_name + "_videoconvert").c_str());
+    GstElement *capsfilter = gst_element_factory_make("capsfilter", (client_name + "_capsfilter").c_str());
+
+    GstCaps *caps = gst_caps_new_simple("application/x-rtp",
+                                        "media", G_TYPE_STRING, "video",
+                                        "clock-rate", G_TYPE_INT, 90000,
+                                        "encoding-name", G_TYPE_STRING, "H264",
+                                        "payload", G_TYPE_INT, 96,
+                                        nullptr);
+    g_object_set(udpsrc, "caps", caps, nullptr);
+    gst_caps_unref(caps);
+
+    caps = gst_caps_new_simple("video/x-raw",
+                               "framerate", GST_TYPE_FRACTION, 30, 1,
+                               "width", G_TYPE_INT, 320,
+                               "height", G_TYPE_INT, 240,
+                               nullptr);
+    g_object_set(capsfilter, "caps", caps, nullptr);
+    gst_caps_unref(caps);
+
+    gst_bin_add_many(GST_BIN(pipeline), udpsrc, rtph264depay, avdec_h264, videoscale, videoconvert, capsfilter, nullptr);
+
+    gst_element_link_many(udpsrc, rtph264depay, avdec_h264, videoscale, videoconvert, capsfilter, nullptr);
+
+    GstPad *capsfilter_src_pad = gst_element_get_static_pad(capsfilter, "src");
+    if (!capsfilter_src_pad)
     {
-        result += udpsrc_to_compositor_part_1 + std::to_string(i) + udpsrc_to_compositor_part_2;
+        g_printerr("Failed to get capsfilter src pad.\n");
+        gst_object_unref(pipeline);
+        return;
     }
-    return result;
+
+    GstPad *compositor_sink_pad = gst_element_request_pad_simple(compositor, "sink_%u");
+    if (!compositor_sink_pad)
+    {
+        g_printerr("Failed to get compositor request sink pad.\n");
+        gst_object_unref(capsfilter_src_pad);
+        gst_object_unref(pipeline);
+        return;
+    }
+
+    if (gst_pad_link(capsfilter_src_pad, compositor_sink_pad) != GST_PAD_LINK_OK)
+    {
+        g_printerr("Failed to link capsfilter and compositor pads.\n");
+        gst_object_unref(capsfilter_src_pad);
+        gst_object_unref(compositor_sink_pad);
+        gst_object_unref(pipeline);
+        return;
+    }
+
+    gst_object_unref(capsfilter_src_pad);
+    gst_object_unref(compositor_sink_pad);
 }
 
 /**
  * Composite pipeline description: compositor name=compositor background=black zero-size-is-unscaled=false ! videobox autocrop=true ! capsfilter name=capsfilter caps="video/x-raw, width=320, height=240" ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink name=udpsink host=127.0.0.1
- *
- * udpsrc name=udpsrc_i caps="application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96" ! rtph264depay ! avdec_h264 ! videoscale ! videoconvert ! video/x-raw, framerate=30/1, width=320, height=240 ! compositor.
  */
 GstElement *composite_pipeline_make(int udpsink_port)
 {
@@ -278,7 +326,8 @@ GstElement *composite_pipeline_make(int udpsink_port)
         return nullptr;
     }
 
-    g_object_set(compositor, "background", "black", "zero-size-is-unscaled", false, nullptr);
+    // background: black (1) – Black
+    g_object_set(compositor, "background", 1, "zero-size-is-unscaled", false, nullptr);
     g_object_set(videobox, "autocrop", true, nullptr);
 
     GstCaps *caps = gst_caps_new_simple("video/x-raw",
@@ -288,7 +337,10 @@ GstElement *composite_pipeline_make(int udpsink_port)
     g_object_set(capsfilter, "caps", caps, nullptr);
     gst_caps_unref(caps);
 
-    g_object_set(x264enc, "tune", "zerolatency", "bitrate", 500, "speed-preset", "superfast", nullptr);
+    // tune: zerolatency (0x00000004) – Zero latency
+    // bitrate: 500
+    // speed-preset: ultrafast (1) – ultrafast / superfast (2) – superfast
+    g_object_set(x264enc, "tune", 4, "bitrate", 500, "speed-preset", 2, nullptr);
     g_object_set(udpsink, "host", "127.0.0.1", "port", udpsink_port, nullptr);
 
     gst_bin_add_many(GST_BIN(pipeline), compositor, videobox, capsfilter, x264enc, rtph264pay, udpsink, nullptr);
@@ -298,58 +350,6 @@ GstElement *composite_pipeline_make(int udpsink_port)
         g_printerr("Failed to link composite pipeline elements.\n");
         gst_object_unref(pipeline);
         return nullptr;
-    }
-
-    for (int i = 0; i < MAX_CLIENTS; i++)
-    {
-        GstElement *udpsrc = gst_element_factory_make("udpsrc", "udpsrc_" + i);
-        GstElement *rtph264depay = gst_element_factory_make("rtph264depay", "rtph264depay");
-        GstElement *avdec_h264 = gst_element_factory_make("avdec_h264", "avdec_h264");
-        GstElement *videoscale = gst_element_factory_make("videoscale", "videoscale");
-        GstElement *videoconvert = gst_element_factory_make("videoconvert", "videoconvert");
-        GstElement *capsfilter = gst_element_factory_make("capsfilter", "capsfilter");
-
-        GstCaps *caps = gst_caps_new_simple("application/x-rtp",
-                                            "media", G_TYPE_STRING, "video",
-                                            "clock-rate", G_TYPE_INT, 90000,
-                                            "encoding-name", G_TYPE_STRING, "H264",
-                                            "payload", G_TYPE_INT, 96,
-                                            nullptr);
-        g_object_set(udpsrc, "caps", caps, nullptr);
-        gst_caps_unref(caps);
-
-        gst_bin_add_many(GST_BIN(pipeline), udpsrc, rtph264depay, avdec_h264, videoscale, videoconvert, capsfilter, nullptr);
-
-        gst_element_link_many(udpsrc, rtph264depay, avdec_h264, videoscale, videoconvert, capsfilter, nullptr);
-
-        GstPad *capsfilter_src_pad = gst_element_get_static_pad(capsfilter, "src");
-        if (!capsfilter_src_pad)
-        {
-            g_printerr("Failed to get capsfilter src pad.\n");
-            gst_object_unref(pipeline);
-            return nullptr;
-        }
-
-        GstPad *compositor_sink_pad = gst_element_request_pad_simple(compositor, "sink_%u");
-        if (!compositor_sink_pad)
-        {
-            g_printerr("Failed to get compositor request sink pad.\n");
-            gst_object_unref(capsfilter_src_pad);
-            gst_object_unref(pipeline);
-            return nullptr;
-        }
-
-        if (gst_pad_link(capsfilter_src_pad, compositor_sink_pad) != GST_PAD_LINK_OK)
-        {
-            g_printerr("Failed to link capsfilter and compositor pads.\n");
-            gst_object_unref(capsfilter_src_pad);
-            gst_object_unref(compositor_sink_pad);
-            gst_object_unref(pipeline);
-            return nullptr;
-        }
-
-        gst_object_unref(capsfilter_src_pad);
-        gst_object_unref(compositor_sink_pad);
     }
 
     return pipeline;
@@ -379,11 +379,6 @@ int main(int argc, char *argv[])
 
     // Initialize GStreamer
     gst_init(nullptr, nullptr);
-
-    std::string pipeline_desc_str = make_pipeline_desc_str();
-
-    // Create pipeline
-    GstElement *pipeline = gst_parse_launch(pipeline_desc_str.c_str(), nullptr);
 
     // Socket for client to server and server to client (two-way) communication
     int server_sock = socket(AF_INET, SOCK_DGRAM, 0);
@@ -432,9 +427,6 @@ int main(int argc, char *argv[])
 
     auto udpsink_port = ntohs(udpsink_sockaddr.sin_port);
 
-    GstElement *udpsink = gst_bin_get_by_name(GST_BIN(pipeline), "udpsink");
-    g_object_set(udpsink, "port", udpsink_port, nullptr);
-
     struct pollfd fds[2];
 
     // TODO Check whether using the same buffer for both sockets is OK and whether it should be outside of the loop
@@ -449,7 +441,16 @@ int main(int argc, char *argv[])
     fds[1].fd = udpsink_sock;
     fds[1].events = POLLIN;
 
-    init_udpsrcs(pipeline);
+    std::string client_name_prefix = "client";
+
+    GstElement *pipeline = composite_pipeline_make(udpsink_port);
+
+    for (int i = 0; i < MAX_CLIENTS; i++)
+    {
+        composite_pipeline_client_add(pipeline, client_name_prefix + std::to_string(i));
+    }
+
+    init_udpsrcs(pipeline, client_name_prefix);
 
     GstElement *capsfilter = gst_bin_get_by_name(GST_BIN(pipeline), "capsfilter");
 
