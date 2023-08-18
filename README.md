@@ -10,6 +10,8 @@ AnimaTrip is heavily influenced by [JackTrip](https://github.com/jacktrip/jacktr
 
 AnimaTrip is in the alpha phase. The AnimaTrip client and server are currently separate and Linux-only applications.
 
+AnimaTrip is licensed under the terms of the GNU General Public License v3.0 or later.
+
 ## Architecture
 
 ```mermaid

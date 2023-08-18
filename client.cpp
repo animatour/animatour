@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: 2023 Harry Nakos <xnakos@gmail.com>
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
 #include <arpa/inet.h>
 #include <gio/gio.h>
 #include <gst/gst.h>
