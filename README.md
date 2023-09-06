@@ -1,16 +1,16 @@
-# AnimaTrip
+# Animatour
 
 ## About
 
-AnimaTrip is a low-latency multi-machine video system used for effortlessly compositing video sources, such as webcams, with video inputs and the composite video output delivered over the Internet.
+Animatour is a low-latency multi-machine video system used for effortlessly compositing video sources, such as webcams, with video inputs and the composite video output delivered over the Internet.
 
-AnimaTrip is based on UDP communication, the client-server model, C++17, and GStreamer.
+Animatour is based on UDP communication, the client-server model, C++17, and GStreamer.
 
-AnimaTrip is heavily influenced by [JackTrip](https://github.com/jacktrip/jacktrip).
+Animatour is heavily influenced by [JackTrip](https://github.com/jacktrip/jacktrip).
 
-AnimaTrip is in the alpha phase. The AnimaTrip client and server are currently separate and Linux-only applications.
+Animatour is in the alpha phase. The Animatour client and server are currently separate and Linux-only applications.
 
-AnimaTrip is licensed under the terms of the GNU General Public License v3.0 or later.
+Animatour is licensed under the terms of the GNU General Public License v3.0 or later.
 
 ## Architecture
 
@@ -53,40 +53,40 @@ graph TD
 
 ## Usage
 
-### AnimaTrip Server
+### Animatour Server
 
 #### Help
 
 ```bash
-./animatrip-server -h
-# Usage: ./animatrip-server [-p port]
+./animatour-server -h
+# Usage: ./animatour-server [-p port]
 ```
 
 #### Run Server
 
 ```bash
-./animatrip-server
+./animatour-server
 ```
 
-### AnimaTrip Client
+### Animatour Client
 
 #### Help
 
 ```bash
-./animatrip-client -h
-# Usage: ./animatrip-client [-t] [-d device] [-p serverport] [serverhost]
+./animatour-client -h
+# Usage: ./animatour-client [-t] [-d device] [-p serverport] [serverhost]
 ```
 
 #### Run Webcam Client to Local Server
 
 ```bash
-./animatrip-client
+./animatour-client
 ```
 
 or
 
 ```bash
-./animatrip-client -d /dev/video0
+./animatour-client -d /dev/video0
 ```
 
 You may run multiple webcam clients on a single machine, but only one webcam client per webcam.
@@ -94,7 +94,7 @@ You may run multiple webcam clients on a single machine, but only one webcam cli
 #### Run Test Client to Local Server
 
 ```bash
-./animatrip-client -t
+./animatour-client -t
 ```
 
 You may run multiple test clients on a single machine.
