@@ -2,15 +2,15 @@
 
 ## About
 
-Animatour is a low-latency multi-machine video system used for effortlessly compositing video sources, such as webcams, with video inputs and the composite video output delivered over the Internet.
+Animatour (formerly, yet briefly, AnimaTrip) is a low-latency multi-machine video system used for effortlessly compositing video sources, such as webcams, with video inputs and the composite video output delivered over the Internet.
 
-Animatour is based on UDP communication, the client-server model, C++17, and GStreamer.
+Animatour is influenced by [JackTrip](https://github.com/jacktrip/jacktrip) and powered by [GStreamer](https://gstreamer.freedesktop.org/).
 
-Animatour is heavily influenced by [JackTrip](https://github.com/jacktrip/jacktrip).
-
-Animatour is in the alpha phase. The Animatour client and server are currently separate and Linux-only applications.
+Animatour is based on C++17, GStreamer, UDP communication, and the client-server model.
 
 Animatour is licensed under the terms of the GNU General Public License v3.0 or later.
+
+Animatour is in the alpha phase. The Animatour client and server are currently separate and Linux-only applications.
 
 ## Architecture
 
