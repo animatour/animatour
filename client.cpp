@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 #include <gio/gio.h>
 #include <gst/gst.h>
+#include <chrono>
 #include <iostream>
 #include <thread>
 
@@ -121,11 +122,34 @@ GstElement *capture_pipeline_make(bool is_test, std::string device, std::string 
 
 void print_usage(char *program_name)
 {
-    fprintf(stderr, "Usage: %s [-t] [-d device] [-p serverport] [serverhost]\n", program_name);
+    fprintf(stderr, "Usage: %s [-r] [-t] [-d device] [-p serverport] [serverhost]\n", program_name);
+}
+
+/**
+ * Periodically send keepalive messages.
+ */
+void keep_alive(std::string server_host, int server_port, GSocket *socket)
+{
+    GSocketAddress *address = g_inet_socket_address_new(g_inet_address_new_from_string(server_host.c_str()), server_port);
+    const auto *message = "";
+    const auto message_len = strlen(message);
+
+    while (true)
+    {
+        auto bytes_sent = g_socket_send_to(socket, address, message, message_len, nullptr, nullptr);
+        if (bytes_sent == -1)
+        {
+            g_print("Failed to send keepalive message.\n");
+            return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
 }
 
 int main(int argc, char *argv[])
 {
+    // Whether no video is sent, only composite video is received and displayed
+    bool is_recvonly = false;
     // Whether a videotestsrc instead of a webcam device will be used
     bool is_test = false;
     std::string device = "/dev/video0";
@@ -134,10 +158,13 @@ int main(int argc, char *argv[])
 
     int opt;
 
-    while ((opt = getopt(argc, argv, "td:p:h")) != -1)
+    while ((opt = getopt(argc, argv, "rtd:p:h")) != -1)
     {
         switch (opt)
         {
+        case 'r':
+            is_recvonly = true;
+            break;
         case 't':
             is_test = true;
             break;
@@ -188,22 +215,38 @@ int main(int argc, char *argv[])
 
     // Create playback pipeline
     GstElement *playback_pipeline = playback_pipeline_make(gsock);
-
-    // Create capture pipeline
-    GstElement *capture_pipeline = capture_pipeline_make(is_test, device, server_host, server_port, gsock);
-
-    // Start playing the pipelines
     gst_element_set_state(playback_pipeline, GST_STATE_PLAYING);
-    gst_element_set_state(capture_pipeline, GST_STATE_PLAYING);
+
+    std::thread keep_alive_thread;
+
+    GstElement *capture_pipeline;
+
+    if (is_recvonly)
+    {
+        keep_alive_thread = std::thread(keep_alive, server_host, server_port, gsock);
+    }
+    else
+    {
+        // Create capture pipeline
+        capture_pipeline = capture_pipeline_make(is_test, device, server_host, server_port, gsock);
+        gst_element_set_state(capture_pipeline, GST_STATE_PLAYING);
+    }
 
     // Create a GLib Main Loop and set it to run
     GMainLoop *loop = g_main_loop_new(nullptr, FALSE);
     g_main_loop_run(loop);
 
     // Clean up
-    gst_element_set_state(capture_pipeline, GST_STATE_NULL);
+    if (is_recvonly)
+    {
+        keep_alive_thread.join();
+    }
+    else
+    {
+        gst_element_set_state(capture_pipeline, GST_STATE_NULL);
+        gst_object_unref(capture_pipeline);
+    }
     gst_element_set_state(playback_pipeline, GST_STATE_NULL);
-    gst_object_unref(capture_pipeline);
     gst_object_unref(playback_pipeline);
     g_main_loop_unref(loop);
     g_object_unref(gsock);
