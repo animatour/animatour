@@ -488,6 +488,7 @@ int main(int argc, char *argv[])
     std::vector<sockaddr_in> client_sockaddrs_inactive;
 
     bool has_addition_occurred;
+    bool has_source_addition_occurred;
     bool has_removal_occurred;
     bool has_source_removal_occurred;
 
@@ -502,7 +503,9 @@ int main(int argc, char *argv[])
         }
 
         current_time = g_get_monotonic_time();
+
         has_addition_occurred = false;
+        has_source_addition_occurred = false;
         has_removal_occurred = false;
         has_source_removal_occurred = false;
 
@@ -517,15 +520,20 @@ int main(int argc, char *argv[])
                 continue;
             }
 
-            // Add client to active clients, if client is not already there
+            // Update client activity time
+            client_activity[client_sockaddr] = current_time;
+
+            // If client is not an active client yet
             if (client_sockaddrs.count(client_sockaddr) == 0)
             {
-                // TODO Handle the opposite case gracefully and do not fail silently
-                if (udpsrc_sockaddrs_available.size() > 0)
+                // Add client to active clients
+                client_sockaddrs.insert(client_sockaddr);
+
+                // Video data received and position available
+                // This is not entered when a keepalive message is received (from a receive-only client) or a position is unavailable
+                if ((bytes_read > 0) && (udpsrc_sockaddrs_available.size() > 0))
                 {
-                    client_sockaddrs.insert(client_sockaddr);
                     source_client_sockaddrs.insert(client_sockaddr);
-                    sink_client_sockaddrs.insert(client_sockaddr);
 
                     auto udpsrc_sockaddr = udpsrc_sockaddrs_available.back();
                     client_routes[client_sockaddr] = udpsrc_sockaddr;
@@ -547,15 +555,17 @@ int main(int argc, char *argv[])
                     positions_available.pop_back();
                     udpsrc_sockaddrs_available.pop_back();
 
-                    has_addition_occurred = true;
+                    has_source_addition_occurred = true;
                 }
+
+                sink_client_sockaddrs.insert(client_sockaddr);
+
+                has_addition_occurred = true;
             }
 
-            // If a client route exists, store the client activity time and route to the associated udpsrc_sockaddr
+            // If a client route exists, route to the associated udpsrc_sockaddr
             if (auto client_route = client_routes.find(client_sockaddr); client_route != client_routes.end())
             {
-                client_activity[client_sockaddr] = current_time;
-
                 // TODO Check whether it is OK to use server_sock to send
                 if (sendto(server_sock, buffer, bytes_read, 0, (struct sockaddr *)&(client_route->second), sizeof(client_route->second)) < 0)
                 {
@@ -640,10 +650,14 @@ int main(int argc, char *argv[])
             }
         }
 
-        if (has_addition_occurred || has_removal_occurred)
+        if (has_source_addition_occurred || has_source_removal_occurred)
         {
             update_grid_size();
             crop_videobox(rows, cols, capsfilter);
+        }
+
+        if (has_addition_occurred || has_removal_occurred)
+        {
             std::cout << "---- Active clients ----" << std::endl;
             for (const auto &client_sockaddr : client_sockaddrs)
             {
