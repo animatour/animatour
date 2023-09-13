@@ -29,7 +29,13 @@ struct sockaddr_in_cmp
     }
 };
 
+// Active clients
 std::set<sockaddr_in, sockaddr_in_cmp> client_sockaddrs;
+
+// Active source clients (each client is a video source)
+std::set<sockaddr_in, sockaddr_in_cmp> source_client_sockaddrs;
+// Active sink clients (each client is a video sink)
+std::set<sockaddr_in, sockaddr_in_cmp> sink_client_sockaddrs;
 
 // Maps client address to GStreamer pipeline udpsrc address
 std::map<sockaddr_in, sockaddr_in, sockaddr_in_cmp> client_routes;
@@ -133,7 +139,7 @@ void update_grid_size()
 {
     uint8_t max_i = 0;
     uint8_t max_j = 0;
-    for (const auto &client_sockaddr : client_sockaddrs)
+    for (const auto &client_sockaddr : source_client_sockaddrs)
     {
         auto udpsrc_sockaddr = client_routes[client_sockaddr];
         auto udpsrc_position = udpsrc_positions[udpsrc_sockaddr];
@@ -155,9 +161,9 @@ void compact_positions()
 
         auto lowest_position_available = positions_available.back();
         // If the lowest available position is less than the client count, then there is at least one client with a higher position
-        if (lowest_position_available < client_sockaddrs.size())
+        if (lowest_position_available < source_client_sockaddrs.size())
         {
-            for (const auto &client_sockaddr : client_sockaddrs)
+            for (const auto &client_sockaddr : source_client_sockaddrs)
             {
                 auto udpsrc_sockaddr = client_routes[client_sockaddr];
                 auto udpsrc_position = udpsrc_positions[udpsrc_sockaddr];
@@ -483,6 +489,7 @@ int main(int argc, char *argv[])
 
     bool has_addition_occurred;
     bool has_removal_occurred;
+    bool has_source_removal_occurred;
 
     while (true)
     {
@@ -497,6 +504,7 @@ int main(int argc, char *argv[])
         current_time = g_get_monotonic_time();
         has_addition_occurred = false;
         has_removal_occurred = false;
+        has_source_removal_occurred = false;
 
         // Check whether server_sock has data
         if (fds[0].revents & POLLIN)
@@ -516,6 +524,8 @@ int main(int argc, char *argv[])
                 if (udpsrc_sockaddrs_available.size() > 0)
                 {
                     client_sockaddrs.insert(client_sockaddr);
+                    source_client_sockaddrs.insert(client_sockaddr);
+                    sink_client_sockaddrs.insert(client_sockaddr);
 
                     auto udpsrc_sockaddr = udpsrc_sockaddrs_available.back();
                     client_routes[client_sockaddr] = udpsrc_sockaddr;
@@ -568,7 +578,7 @@ int main(int argc, char *argv[])
             }
 
             // Send received data from GStreamer to all active clients
-            for (const auto &client_sockaddr : client_sockaddrs)
+            for (const auto &client_sockaddr : sink_client_sockaddrs)
             {
                 if (sendto(server_sock, buffer, bytes_read, 0, (struct sockaddr *)&client_sockaddr, sizeof(client_sockaddr)) < 0)
                 {
@@ -593,26 +603,38 @@ int main(int argc, char *argv[])
 
             for (const auto &client_sockaddr : client_sockaddrs_inactive)
             {
-                auto udpsrc_sockaddr = client_routes[client_sockaddr];
-                auto udpsrc_ix = udpsrc_ixs[udpsrc_sockaddr];
-                auto pad = compositor_pads[udpsrc_ix];
+                if (source_client_sockaddrs.count(client_sockaddr) == 1)
+                {
+                    auto udpsrc_sockaddr = client_routes[client_sockaddr];
+                    auto udpsrc_ix = udpsrc_ixs[udpsrc_sockaddr];
+                    auto pad = compositor_pads[udpsrc_ix];
 
-                g_object_set(pad, "alpha", 0.0, "xpos", 0, "ypos", 0, "width", 0, "height", 0, nullptr);
+                    g_object_set(pad, "alpha", 0.0, "xpos", 0, "ypos", 0, "width", 0, "height", 0, nullptr);
 
-                auto udpsrc_position = udpsrc_positions[udpsrc_sockaddr];
+                    auto udpsrc_position = udpsrc_positions[udpsrc_sockaddr];
 
-                positions_available.push_back(udpsrc_position);
-                udpsrc_sockaddrs_available.push_back(udpsrc_sockaddr);
+                    positions_available.push_back(udpsrc_position);
+                    udpsrc_sockaddrs_available.push_back(udpsrc_sockaddr);
 
-                udpsrc_positions.erase(udpsrc_sockaddr);
+                    udpsrc_positions.erase(udpsrc_sockaddr);
+                    source_client_sockaddrs.erase(client_sockaddr);
+                    client_routes.erase(client_sockaddr);
+
+                    has_source_removal_occurred = true;
+                }
+
+                if (sink_client_sockaddrs.count(client_sockaddr) == 1)
+                {
+                    sink_client_sockaddrs.erase(client_sockaddr);
+                }
+
                 client_sockaddrs.erase(client_sockaddr);
-                client_routes.erase(client_sockaddr);
                 client_activity.erase(client_sockaddr);
 
                 has_removal_occurred = true;
             }
 
-            if (has_removal_occurred)
+            if (has_source_removal_occurred)
             {
                 compact_positions();
             }
