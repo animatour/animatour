@@ -74,7 +74,7 @@ graph TD
 
 ```bash
 ./animatour-client -h
-# Usage: ./animatour-client [-t] [-d device] [-p serverport] [serverhost]
+# Usage: ./animatour-client [-r] [-t] [-d device] [-p serverport] [serverhost]
 ```
 
 #### Run Webcam Client to Local Server
@@ -98,3 +98,11 @@ You may run multiple webcam clients on a single machine, but only one webcam cli
 ```
 
 You may run multiple test clients on a single machine.
+
+#### Run Receive-Only (Sink-Only) Client to Local Server
+
+```bash
+./animatour-client -r
+```
+
+You may run multiple receive-only clients on a single machine.
